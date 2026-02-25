@@ -1,4 +1,4 @@
-from classifier import Symbol
+from classifier import Symbol, SymbolType
 from segmentation import BoundingBox
 
 # Detects the structure of the document, such superscripts, subscripts, fractions, etc.
@@ -26,6 +26,9 @@ class Text(Node):
     def __init__(self, text: str) -> None:
         self.text = text
 
+    def __str__(self) -> str:
+        return self.text
+
 
 class MathNode(Node):
     """Represents a mathematical expression, which can contain multiple child nodes, including Text nodes."""
@@ -41,11 +44,20 @@ class MathNode(Node):
         """Clears all child nodes from the MathNode."""
         self.children.clear()
 
+    def __str__(self) -> str:
+        return f"${''.join(str(child) for child in self.children)}$"
+
+
+# TODO: Multiline math node
+
 
 class Superscript(Node):
     def __init__(self, base: Node, superscript: Node) -> None:
         self.base = base
         self.superscript = superscript
+
+    def __str__(self) -> str:
+        return f"{self.base}^{self.superscript}"
 
 
 class Subscript(Node):
@@ -53,11 +65,17 @@ class Subscript(Node):
         self.base = base
         self.subscript = subscript
 
+    def __str__(self) -> str:
+        return f"{self.base}_{self.subscript}"
+
 
 class Fraction(Node):
     def __init__(self, numerator: Node, denominator: Node) -> None:
         self.numerator = numerator
         self.denominator = denominator
+
+    def __str__(self) -> str:
+        return f"\\frac{{{self.numerator}}}{{{self.denominator}}}"
 
 
 #
@@ -78,11 +96,43 @@ class AST:
         for label, box in symbols:
             # TODO: Use bounding box spatial relationships
             # TODO: Clustering based on box positions?
-            nodes.append(Text(label.value))
+
+            label_text = Text(label.value)
+            if label.type == SymbolType.MATH:
+                math_node.add(label_text)
+            else:
+                # Add and clear the math node if we encounter a text symbol after math symbols
+                if math_node.children:
+                    nodes.append(math_node)
+                    math_node.clear()
+
+                nodes.append(label_text)
+
+        if math_node.children:
+            nodes.append(math_node)
 
         return nodes
 
     # TODO: Render methods
     # Render the AST to LaTeX & Markdown
     def render_latex_markdown(self) -> str:
-        return "a"
+        return "".join(str(node) for node in self.root)
+
+
+# Testing
+if __name__ == "__main__":
+    """
+    Hello world!
+    $x+y^2$
+    """
+    symbols: list[tuple[Symbol, BoundingBox]] = [
+        (Symbol("Hello world!", SymbolType.TEXT), BoundingBox(0, 20, 100, 10)),
+        (Symbol("x", SymbolType.MATH), BoundingBox(0, 0, 10, 10)),
+        (Symbol("+", SymbolType.MATH), BoundingBox(10, 0, 10, 10)),
+        (Symbol("y", SymbolType.MATH), BoundingBox(20, 0, 10, 10)),
+        (Symbol("2", SymbolType.MATH), BoundingBox(30, 8, 5, 5)),  # Slightly above the y
+    ]
+
+    ast = AST(symbols)
+
+    print(ast.render_latex_markdown())
