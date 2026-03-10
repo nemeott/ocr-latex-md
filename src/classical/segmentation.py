@@ -1,9 +1,4 @@
-class BoundingBox:
-    def __init__(self, x: int, y: int, width: int, height: int) -> None:
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
+from bounding_box import BoundingBox
 
 
 # Returns a list of bounding boxes for each character in the image
