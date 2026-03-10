@@ -1,5 +1,5 @@
-from classifier import Symbol, SymbolType
 from segmentation import BoundingBox
+from symbol import Symbol, SymbolType
 
 # Detects the structure of the document, such superscripts, subscripts, fractions, etc.
 # Uses the spatial relationships between the symbols to build an abstract syntax tree (AST)
@@ -84,21 +84,21 @@ class Fraction(Node):
 
 
 class AST:
-    def __init__(self, symbols: list[tuple[Symbol, BoundingBox]]) -> None:
+    def __init__(self, symbols: list[Symbol]) -> None:
         self.root: list[Node] = self._build_structure(symbols)
 
     # Build an AST from the list of symbols and their bounding boxes
     @staticmethod
-    def _build_structure(symbols: list[tuple[Symbol, BoundingBox]]) -> list[Node]:
+    def _build_structure(symbols: list[Symbol]) -> list[Node]:
         nodes: list[Node] = []
         math_node = MathNode()
 
-        for label, box in symbols:
+        for symbol in symbols:
             # TODO: Use bounding box spatial relationships
             # TODO: Clustering based on box positions?
 
-            label_text = Text(label.value)
-            if label.type == SymbolType.MATH:
+            label_text = Text(symbol.value)
+            if symbol.type == SymbolType.MATH:
                 math_node.add(label_text)
             else:
                 # Add and clear the math node if we encounter a text symbol after math symbols
@@ -125,12 +125,12 @@ if __name__ == "__main__":
     Hello world!
     $x+y^2$
     """
-    symbols: list[tuple[Symbol, BoundingBox]] = [
-        (Symbol("Hello world!", SymbolType.TEXT), BoundingBox(0, 20, 100, 10)),
-        (Symbol("x", SymbolType.MATH), BoundingBox(0, 0, 10, 10)),
-        (Symbol("+", SymbolType.MATH), BoundingBox(10, 0, 10, 10)),
-        (Symbol("y", SymbolType.MATH), BoundingBox(20, 0, 10, 10)),
-        (Symbol("2", SymbolType.MATH), BoundingBox(30, 8, 5, 5)),  # Slightly above the y
+    symbols: list[Symbol] = [
+        Symbol("Hello world! ", SymbolType.TEXT, BoundingBox(0, 20, 100, 10)),
+        Symbol("x", SymbolType.MATH, BoundingBox(0, 0, 10, 10)),
+        Symbol("+", SymbolType.MATH, BoundingBox(10, 0, 10, 10)),
+        Symbol("y", SymbolType.MATH, BoundingBox(20, 0, 10, 10)),
+        Symbol("2", SymbolType.MATH, BoundingBox(30, 8, 5, 5)),  # Slightly above the y
     ]
 
     ast = AST(symbols)
