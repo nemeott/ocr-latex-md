@@ -3,14 +3,7 @@ import cv2
 
 
 def load_image(path_or_image, label: str, size: int = 28) -> list:
-    """Load an image and return [label, [pixels]] for the SVM.
 
-    The label comes from the dataset; this function just pairs it
-    with the processed pixel data.
-
-    Returns:
-        [label, [p0, p1, ..., pN]] where pixels are binary 0/1 ints.
-    """
     if isinstance(path_or_image, str):
         image = cv2.imread(path_or_image, cv2.IMREAD_GRAYSCALE)
         if image is None:
@@ -45,7 +38,7 @@ def reshape_image(flat_pixels: np.ndarray, new_n: int, new_m: int) -> np.ndarray
     image = flat_pixels.reshape(side, side).astype(np.float64)
     old_n, old_m = image.shape
 
-    # Determine resize target: shrink axes that need downsizing, keep others as-is
+    # Determine resize target: shrink axes that need downsizing
     resize_n = min(old_n, new_n)
     resize_m = min(old_m, new_m)
 
