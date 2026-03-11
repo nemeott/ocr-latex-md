@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+from PIL import Image as PILImage
 
 
 def load_image(path_or_image, label: str, size: int = 28) -> list:
@@ -9,13 +10,16 @@ def load_image(path_or_image, label: str, size: int = 28) -> list:
         if image is None:
             raise FileNotFoundError(f"Could not load image at '{path_or_image}'")
 
-    elif isinstance(path_or_image, np.ndarray):
+    elif isinstance(path_or_image, PILImage.Image): # PIL Image
+        image = np.array(path_or_image.convert("L"))
+
+    elif isinstance(path_or_image, np.ndarray): # already a numpy array
         image = path_or_image.copy()
         if image.ndim == 3:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     else:
-        raise TypeError(f"Expected a file path or np.ndarray, got {type(path_or_image)}")
+        raise TypeError(f"Expected a file path, PIL Image, or np.ndarray, got {type(path_or_image)}")
 
     image = cv2.resize(image, (size, size), interpolation=cv2.INTER_AREA)
 
