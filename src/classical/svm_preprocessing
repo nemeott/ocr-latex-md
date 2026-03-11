@@ -1,0 +1,62 @@
+import numpy as np
+import cv2
+
+
+def load_image(path_or_image, label: str, size: int = 28) -> list:
+    """Load an image and return [label, [pixels]] for the SVM.
+
+    The label comes from the dataset; this function just pairs it
+    with the processed pixel data.
+
+    Returns:
+        [label, [p0, p1, ..., pN]] where pixels are binary 0/1 ints.
+    """
+    if isinstance(path_or_image, str):
+        image = cv2.imread(path_or_image, cv2.IMREAD_GRAYSCALE)
+        if image is None:
+            raise FileNotFoundError(f"Could not load image at '{path_or_image}'")
+
+    elif isinstance(path_or_image, np.ndarray):
+        image = path_or_image.copy()
+        if image.ndim == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    else:
+        raise TypeError(f"Expected a file path or np.ndarray, got {type(path_or_image)}")
+
+    image = cv2.resize(image, (size, size), interpolation=cv2.INTER_AREA)
+
+    # Binarize with Otsu's method
+    ignored, binary = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    # Convert from 0/255 to 0/1
+    binary = (binary > 0).astype(np.uint8)
+
+    return [label, binary.flatten().tolist()]
+
+
+def reshape_image(flat_pixels: np.ndarray, new_n: int, new_m: int) -> np.ndarray:
+
+    total = flat_pixels.size
+    side = int(np.sqrt(total))
+    if side * side != total:
+        raise ValueError(f"Flat array length {total} is not a perfect square. Cannot infer original dimensions.")
+
+    image = flat_pixels.reshape(side, side).astype(np.float64)
+    old_n, old_m = image.shape
+
+    # Determine resize target: shrink axes that need downsizing, keep others as-is
+    resize_n = min(old_n, new_n)
+    resize_m = min(old_m, new_m)
+
+    # Downsample with cv2 if either axis needs to shrink
+    if resize_n < old_n or resize_m < old_m:
+        image = cv2.resize(image, (resize_m, resize_n), interpolation=cv2.INTER_AREA)
+
+    # Pad with blank pixels if either axis needs to grow
+    pad_n = new_n - image.shape[0]
+    pad_m = new_m - image.shape[1]
+    if pad_n > 0 or pad_m > 0:
+        image = np.pad(image, ((pad_n // 2, pad_n - pad_n // 2), (pad_m // 2, pad_m - pad_m // 2)), mode='constant', constant_values=0)
+
+    return image.astype(flat_pixels.dtype)
