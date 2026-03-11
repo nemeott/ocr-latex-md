@@ -29,7 +29,7 @@ def load_image(path_or_image, label: str, size: int = 28) -> list:
     # Convert from 0/255 to 0/1
     binary = (binary > 0).astype(np.uint8)
 
-    return [label, binary.flatten().tolist()]
+    return [label, binary.flatten()]
 
 
 def reshape_image(flat_pixels: np.ndarray, new_n: int, new_m: int) -> np.ndarray:
