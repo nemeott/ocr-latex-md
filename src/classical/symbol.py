@@ -19,4 +19,7 @@ class Symbol:
         self.box: BoundingBox = bounding_box
 
     def __str__(self) -> str:
-        return f"Symbol(value='{self.value}', type={self.type}, box={self.box})"
+        return f"Symbol('{self.value}', {self.type}, {self.box})"
+
+    def __repr__(self) -> str:
+        return self.__str__()

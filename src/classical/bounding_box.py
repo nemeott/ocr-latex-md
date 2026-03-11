@@ -7,9 +7,21 @@ class BoundingBox:
         self.width = width
         self.height = height
 
+    def center_x(self) -> float:
+        """Returns the x-coordinate of the center of the bounding box."""
+        return self.x + self.width / 2.0
+
+    def center_y(self) -> float:
+        """Returns the y-coordinate of the center of the bounding box."""
+        return self.y + self.height / 2.0
+
     def center(self) -> tuple[float, float]:
         """Returns the center coordinates of the bounding box."""
-        return (self.x + self.width / 2, self.y + self.height / 2)
+        return (self.x + self.width / 2.0, self.y + self.height / 2.0)
+
+    def area(self) -> int:
+        """Returns the area of the bounding box."""
+        return self.width * self.height
 
     def __str__(self) -> str:
         return f"BoundingBox(x={self.x}, y={self.y}, width={self.width}, height={self.height})"
