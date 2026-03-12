@@ -6,12 +6,11 @@ from structure import AST
 
 # Basic outline for classical OCR pipeline for LaTeX to Markdown conversion
 
+train_data = prepare_training_data(n_math=115, n_text=115) #Both of these load in 115 samples. If you want entire dataset, leave parameters defaul. 
+test_data = prepare_test_data(n_math=115, n_text=115)
+
 classifier = SymbolClassifier()
 # classifier.train() # TODO: Train classifier or load pre-trained model
-
-image = load_image("example.png")
-
-image = preprocess(image)
 
 # Segment each character
 boxes = segment(image)
