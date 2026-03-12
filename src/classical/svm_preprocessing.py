@@ -1,5 +1,6 @@
-import numpy as np
 import cv2
+import numpy as np
+from bounding_box import BoundingBox
 from PIL import Image as PILImage
 
 
@@ -9,15 +10,12 @@ def load_image(path_or_image, label: str, size: int = 28) -> list:
         image = cv2.imread(path_or_image, cv2.IMREAD_GRAYSCALE)
         if image is None:
             raise FileNotFoundError(f"Could not load image at '{path_or_image}'")
-
-    elif isinstance(path_or_image, PILImage.Image): # PIL Image
+    elif isinstance(path_or_image, PILImage.Image):  # PIL Image
         image = np.array(path_or_image.convert("L"))
-
-    elif isinstance(path_or_image, np.ndarray): # already a numpy array
+    elif isinstance(path_or_image, np.ndarray):  # Already a numpy array
         image = path_or_image.copy()
         if image.ndim == 3:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
     else:
         raise TypeError(f"Expected a file path, PIL Image, or np.ndarray, got {type(path_or_image)}")
 
@@ -54,6 +52,11 @@ def reshape_image(flat_pixels: np.ndarray, new_n: int, new_m: int) -> np.ndarray
     pad_n = new_n - image.shape[0]
     pad_m = new_m - image.shape[1]
     if pad_n > 0 or pad_m > 0:
-        image = np.pad(image, ((pad_n // 2, pad_n - pad_n // 2), (pad_m // 2, pad_m - pad_m // 2)), mode='constant', constant_values=0)
+        image = np.pad(
+            image,
+            ((pad_n // 2, pad_n - pad_n // 2), (pad_m // 2, pad_m - pad_m // 2)),
+            mode="constant",
+            constant_values=0,
+        )
 
     return image.astype(flat_pixels.dtype)

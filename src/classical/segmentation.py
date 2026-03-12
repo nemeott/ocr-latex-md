@@ -31,10 +31,7 @@ def segment(image: np.ndarray) -> list[BoundingBox]:
 
         bounding_boxes.append(BoundingBox(x=x, y=y, width=w, height=h))
 
-
     # Sort left to right, top to bottom (reading order)
     bounding_boxes.sort(key=lambda b: (b.y, b.x))
-
-
 
     return bounding_boxes

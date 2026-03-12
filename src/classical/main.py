@@ -1,8 +1,9 @@
-from classifier import Symbol, SymbolClassifier
-from features import extract_features
+# from classifier import
+# from features import extract_features
 from preprocessing import crop_character, load_image, preprocess
 from segmentation import segment
 from structure import AST
+from symbol import Symbol
 
 # Basic outline for classical OCR pipeline for LaTeX to Markdown conversion
 
