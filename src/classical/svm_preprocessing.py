@@ -22,15 +22,12 @@ def svm_load_image(path_or_image, label: str, size: int = 28) -> list:
         image = cv2.imread(path_or_image, cv2.IMREAD_GRAYSCALE)
         if image is None:
             raise FileNotFoundError(f"Could not load image at '{path_or_image}'")
-
     elif isinstance(path_or_image, PILImage.Image):  # PIL Image
         image = np.array(path_or_image.convert("L"))
-
     elif isinstance(path_or_image, np.ndarray):  # Already a numpy array
         image = path_or_image.copy()
         if image.ndim == 3:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            
     else:
         raise TypeError(f"Expected a file path, PIL Image, or np.ndarray")
 
