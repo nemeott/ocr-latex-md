@@ -1,4 +1,4 @@
-from segmentation import BoundingBox
+from bounding_box import BoundingBox
 from symbol import Symbol, SymbolType
 
 # Detects the structure of the document, such superscripts, subscripts, fractions, etc.
@@ -39,8 +39,8 @@ class Text(Node):
 class MathNode(Node):
     """Represents a mathematical expression, which can contain multiple child nodes, including Text nodes."""
 
-    def __init__(self) -> None:
-        self.children: list[Node] = []
+    def __init__(self, children: list[Node] = []) -> None:
+        self.children: list[Node] = children
 
     def add(self, node: Node) -> None:
         """Adds a child node to the MathNode."""
@@ -87,7 +87,7 @@ class Fraction(Node):
 #
 # Math Spatial Relation Tree
 #
-class MathTree:
+class MathList:
     """A helper class to build a math expression tree based on the spatial relationships of the symbols.
 
     Assumes increasing y is upwards to make understanding equations easier.
@@ -120,6 +120,7 @@ class MathTree:
             and b.box.center_y() < (a.box.center_y() - a.box.height * SCRIPT_MARGIN)  # B below A within margin
         )
 
+    # TODO: Refactor
     @staticmethod
     def is_above(a: Symbol, b: Symbol) -> bool:
         """Returns True if B is above A."""
@@ -153,16 +154,16 @@ class MathTree:
         """
         # Spatial relation checks
         a_has_b = (
-            MathTree.is_superscript_of(a, b)
-            or MathTree.is_subscript_of(a, b)
-            or MathTree.is_above(a, b)
-            or MathTree.is_below(a, b)
+            MathList.is_superscript_of(a, b)
+            or MathList.is_subscript_of(a, b)
+            or MathList.is_above(a, b)
+            or MathList.is_below(a, b)
         )
         b_has_a = (
-            MathTree.is_superscript_of(b, a)
-            or MathTree.is_subscript_of(b, a)
-            or MathTree.is_above(b, a)
-            or MathTree.is_below(b, a)
+            MathList.is_superscript_of(b, a)
+            or MathList.is_subscript_of(b, a)
+            or MathList.is_above(b, a)
+            or MathList.is_below(b, a)
         )
 
         # A has B within region and B does not have A: then A dominates B
@@ -173,9 +174,9 @@ class MathTree:
             return False
 
         # Symbol class priority (operators, fraction bar, etc.)
-        if MathTree.symbol_priority(a) > MathTree.symbol_priority(b):
+        if MathList.symbol_priority(a) > MathList.symbol_priority(b):
             return True
-        if MathTree.symbol_priority(b) > MathTree.symbol_priority(a):
+        if MathList.symbol_priority(b) > MathList.symbol_priority(a):
             return False
 
         # Size comparison (area, then height) since priorities are equal
@@ -184,22 +185,22 @@ class MathTree:
         return a.box.height > b.box.height
 
     @staticmethod
-    def get_dominant_symbol(symbols: list[Symbol]) -> Symbol:
+    def get_dominant_symbol_index(symbols: list[Symbol]) -> int:
         """Determines the dominant symbol in a list of symbols based on their bounding boxes."""
-        if len(symbols) == 1:
-            return symbols[0]
-
-        # Find the symbol that dominates the most other symbols
-        best_symbol = symbols[0]
+        best_index = 0
         best_score = 0
 
-        for candidate in symbols:
-            score = sum(1 for other in symbols if candidate != other and MathTree.dominates(candidate, other))
+        if len(symbols) == 1:
+            return best_index
+
+        # Find the symbol that dominates the most other symbols
+        for i, candidate in enumerate(symbols):
+            score = sum(1 for other in symbols if candidate != other and MathList.dominates(candidate, other))
             if score > best_score:
                 best_score = score
-                best_symbol = candidate
+                best_index = i
 
-        return best_symbol
+        return best_index
 
     def to_math_node(self) -> MathNode:
         """Converts the MathTree to a MathNode."""
@@ -208,10 +209,39 @@ class MathTree:
         # Sort symbols by their position (left to right)
         symbols = self.children
         symbols.sort(key=lambda s: s.box.x)
+        print(symbols)
 
-        dominant_symbol = MathTree.get_dominant_symbol(symbols)
+        # Find dominant symbol
+        dominant_symbol_index = MathList.get_dominant_symbol_index(symbols)
+        dominant_symbol = symbols[dominant_symbol_index]
+        baseline_top = dominant_symbol.box.top()
+        baseline_bottom = dominant_symbol.box.bottom()
 
-        # TODO: Build math node
+        # TODO: Make recursive
+        # Calculate baseline from dominant symbol
+        added = set()
+        top_line_indices = []
+        bottom_line_indices = []
+        for i, symbol in enumerate(symbols):
+            center_y = symbol.box.center_y()
+            
+            is_above, is_below = False, False
+            if center_y > baseline_bottom:
+                is_below = True
+            if center_y < baseline_top:
+                is_above = True
+            
+            # Add symbol to baseline if its center falls within the top and bottom of the dominant symbol
+            if is_above and is_below:
+                added.add(i)
+                math_node.add(Text(symbol.value))
+            elif is_above:
+                top_line_indices.append(i)
+            else:
+                bottom_line_indices.append(i)
+
+        while len(added) != len(symbols):
+            
 
         return math_node
 
@@ -229,12 +259,9 @@ class AST:
     @staticmethod
     def _build_structure(symbols: list[Symbol]) -> list[Node]:
         nodes: list[Node] = []
-        math_tree = MathTree()
+        math_tree = MathList()
 
         for symbol in symbols:
-            # TODO: Use bounding box spatial relationships
-            # TODO: Clustering based on box positions?
-
             label_text = Text(symbol.value)
             if symbol.type == SymbolType.MATH:
                 math_tree.add(symbol)
@@ -270,20 +297,18 @@ if __name__ == "__main__":
         Symbol("+", SymbolType.MATH, BoundingBox(10, 0, 10, 10)),
         Symbol("y", SymbolType.MATH, BoundingBox(20, 0, 10, 10)),
         Symbol("2", SymbolType.MATH, BoundingBox(30, 8, 5, 5)),  # Slightly above the y (superscript)
-        Symbol("_", SymbolType.MATH, BoundingBox(23, -15, 30, 5)),  # Fraction below
-        Symbol("13", SymbolType.MATH, BoundingBox(20, -27, 10, 10)),  # Denominator
+        # Symbol("_", SymbolType.MATH, BoundingBox(23, -15, 30, 5)),  # Fraction below
+        # Symbol("13", SymbolType.MATH, BoundingBox(20, -27, 10, 10)),  # Denominator
     ]
 
     ast = AST(symbols)
 
     # Fraction line should be dominant symbol here
-    print(MathTree.get_dominant_symbol(symbols[1:]))
     print("Dominance scores:")
     for candidate in symbols[1:]:
-        score = sum(1 for other in symbols[1:] if candidate != other and MathTree.dominates(candidate, other))
+        score = sum(1 for other in symbols[1:] if candidate != other and MathList.dominates(candidate, other))
         print(f"  {candidate.value} (area={candidate.box.area()}, height={candidate.box.height}): score={score}")
 
     print()
 
-    # FIXME: Use structure detection
     print(ast.render_latex_markdown())
