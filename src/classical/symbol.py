@@ -1,6 +1,6 @@
 from enum import Enum
 
-from segmentation import BoundingBox
+from bounding_box import BoundingBox
 
 
 class SymbolType(Enum):

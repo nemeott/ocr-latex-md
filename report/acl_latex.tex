@@ -215,6 +215,66 @@ whether to produce LaTeX or Markdown. If neither option reaches the required thr
 respective decoders, and the best outcome would be used.
 % TODO: Reword
 
+\section{Classical Methods}
+
+\subsection{Dataset and Preprocessing}
+
+Our dataset and preprocessing pipeline that we have set up loads out two hugging face datasets. These datasets include MathWritingHandwritten for the math expressions, while the other dataset contains handwritten text. Our pipeline here works for both datasets, where we convert each image in our dataset to grayscale. We then resize it to be 28x28 pixels size, and then binarize our images using Otsu’s thresholding method. It is important to note that the current pipeline we have implemented works and was designed for SVM training right now. For our full pipeline, we went ahead and applied Gaussian blur for noise reduction in our images and then utilized adaptive thresholding for more cleaner binarization. It is important to note that our current implementation is the SVM pipeline only, which does not apply Gaussian blur. In our load\_dataset function, we use the svm\_loadimage function which follows the same process as our preprocess method in the preprocessing.py file. This function returns a list that follows: [text label, [binary pixels]]. For the binarization in this SVM function, we still use Otsu’s thresholding. Our main load\_dataset function uses the svm\_loadimage to get the label text and the binary pixels array for each image. We then build a new list for each image. Using the svm\_load\_image, we pull our pixels for each image. From here, the final list for each image that gets returned is: [[type label, text string], pixels]. The type label contains if it is either math for handwriting, and the text string is the actual text that is written, either latex math or handwriting.
+
+\subsection{Segmentation}
+
+To separate individual symbols from the handwritten image, we use a simple segmentation pipeline based on connected component analysis. First, the image is converted to grayscale and then binarized using Otsu’s thresholding, which helps distinguish the handwriting from the background. After this step, connected components are detected, where each group of connected pixels is treated as a potential symbol.
+For each detected component, we compute a bounding box that captures the position and size of the symbol in the image. Very small components are filtered out to remove noise. The remaining bounding boxes are then sorted based on their position in the image so that symbols are processed in approximately left-to-right, top-to-bottom reading order. These segmented symbol regions are then passed to the next stage of the pipeline for feature extraction and classification using the SVM model.
+
+
+\subsection{Support Vector Models}
+
+For the SVM method, our pipeline is to have images loaded and pre-processed, segmented into individual symbols, classified by SVM models into symbol type (i.e., text vs LaTeX) and symbol, and displayed via a syntax tree. In our initial design, we have the SVM directly using pixels as features, but we intend to change this to well experimented features like Histogram of Oriented Gradients (HOG) in other image classification domains \citep{dalal1467360}. We also are using Principal Component Analysis to reduce the dimensionality of the images, particularly when areas like the corners likely hold very little information about the text. For clustering, we are using KMeans to cluster the data and then training individual SVM models on each cluster. This means that the final output in the ensemble architecture would be first classifying the unlabeled cluster of the image, loading that model, and predicting the output from that model. We also intend to try another ensemble architecture where first the Markdown/LaTeX class is predicted and then passed to a second SVM afterwards. For testing the models, we are reporting Accuracy, Precision, F1-Score, and Recall.
+
+\subsection{Syntax Parsing and Output}
+
+The last step of the process involves combining the predicted markdown and LaTeX together. This is done with an Abstract Syntax Tree (AST), which uses the information provided by segmentation and classification to produce the final output. Classical OCR methods commonly use this since they can't handle the multi-modal context that transformers are able to. However, to build the AST, we first need to find the formula line using the bounding box information from the classification stage. The baseline is a horizontal line through the symbols that dominate the equation. For example, the baseline for the equation $y=ax_{1}+bx_{2}^{2}$ would include they symbols $y=ax+bx$, since those are the base symbols of the formula. Superscripts and subscripts are treated as less dominant than the character that owns them. We take the symbol that dominates the others the most and construct the baseline from it. Then we build up the mathematical structural relationship between the others, expanding outwards from the baseline. Once we have the structural relationship between the symbols, we can build the final LaTeX output and add it to the final markdown text.
+
+
+\section{Initial Experimental Results}
+
+Despite the limitations we are now working around (see Limitations section), we ran a test of the two SVM architectures using MNIST digits and MNIST fashion with digits having labels [0, label] and fashion having labels [1, label]. With the total of 140,000 images, we split them into 80/20 training/test and got the following results:
+
+\begin{table}[h!]
+	\centering
+	\begin{tabular}{|c|c|c|}
+		\hline
+		\textbf{Digit/Fashion} & \textbf{General SVM} & \textbf{Ensemble} \\
+		\hline
+		\verb|Accuracy|        & 0.9972               & 0.9981            \\\hline
+		\verb|Precision|       & 0.9973               & 0.9981            \\\hline
+		\verb|F1-Score|        & 0.9972               & 0.9981            \\\hline
+		\verb|Recall|          & 0.9972               & 0.9981            \\\hline
+	\end{tabular}
+
+	\begin{tabular}{|c|c|c|}
+		\hline
+		\textbf{Label}   & \textbf{General SVM} & \textbf{Ensemble} \\
+		\hline
+		\verb|Accuracy|  & 0.7876               & 0.8435            \\\hline
+		\verb|Precision| & 0.7870               & 0.8424            \\\hline
+		\verb|F1-Score|  & 0.7849               & 0.8426            \\\hline
+		\verb|Recall|    & 0.7876               & 0.8435            \\\hline
+	\end{tabular}	\caption{Intial experimental results on the Digit/Fashion and Label methods respectively.}
+\end{table}
+
+Notably, while neither struggled under any metric with determining digit vs fashion, the ensemble SVM architecture outperformed the general SVM in all of the metrics with statistical significance (all p-values < 0.000001), indicating promising results for when we finally can switch to Markdown + LaTeX.
+
+\section{Limitations}
+
+As of now, our biggest limitation is the problem surrounding training the SVM on characters. For our pipeline when actually using the model, we have a structure in place for segmenting the images into characters, but this does not help us in training because our pipeline has no way of accurately separating the labels, especially for LaTeX. As of now, we are deciding on one of three options: train on labels our code splits with understanding that label accuracy will drop, train only on images that are labeled as a single symbol (e.g., a, A, $\alpha$, etc) with understanding that our dataset is now severely limited, or use other datasets to train the models and just use our current two as test datasets for comparison to the encoder-decoder architecture. As of the time of this short paper, we are going to use two new datasets, EMNIST for Markdown text \citep{cohen2017emnistextension} and HASYv2 for LaTeX \citep{thoma2017hasyv2}, and keep the alternatives as a backup plan in case everything fails on us.
+
+Another limitation is that we have to manually try different cluster numbers for KMeans, and due to training times which we are already using PCA for, we are limited in the amount of clusters we can use. The idea is that we want clusters because they can make the data more separable, but there is also an upper limit because eventually the unsupervised KMeans model has a larger impact on the final output than each of the SVM models does. As of now, we are just planning on testing different cluster numbers until we get the one that performs best, starting with small amounts > 1 (e.g., 2, 3, 4, or 5).
+
+\section{Planned Neural Network Method}
+
+We are still planning on using an encoder-decoder architecture. Because of the snags we were running into, we diverted our focus towards getting the classical approach to work, and now that we are wrapping that up, we will start training the neural network method immediately. Because it can handle strings of text much easier, we expect to spend significantly less time preparing data for it with the trade off of more training time.
+
 % \section*{Acknowledgments}
 
 % Bibliography entries for the entire Anthology, followed by custom entries
