@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from joblib import Parallel, delayed
 from bounding_box import BoundingBox
 from data_loading import load_math_writing, load_iam_lines
 
@@ -122,18 +123,19 @@ def crop_character(image: np.ndarray, box: BoundingBox, size: int = 28) -> np.nd
     return binary
 
 
-def _load_dataset(math_split, text_split, n_math=None, n_text=None):
+def _load_dataset(math_split, text_split, n_math=None, n_text=None, n_jobs=-2):
 
     """
     This function help us to load the dataset and convert it to the format we need for the SVM training
 
-    Right now this is only for SVM training, but I plan on extending it to for general purpose training in the future. 
+    Right now this is only for SVM training, but I plan on extending it to for general purpose training in the future.
 
     Args:
         math_split: The split of the math dataset
         text_split: The split of the text dataset
         n_math: The number of math samples to load
         n_text: The number of text samples to load
+        n_jobs: Number of parallel jobs for preprocessing (-2 = all cores but one, -1 = all cores, 1 = sequential)
     Returns:
         data_list: A list of the data
     """
@@ -147,21 +149,24 @@ def _load_dataset(math_split, text_split, n_math=None, n_text=None):
         (load_iam_lines(text_split), "image", "text", 0, n_text),
     ]:
 
-        if n_cap is None:
-            count = len(ds)
-        else:
-            count = min(n_cap, len(ds))
+    #Used LLM here to help me implmenet parallel processing for the dataset loading.
 
-        for i in range(count):
-            pixels = svm_load_image(ds[i][img_key], ds[i][txt_key])[1]
-            data_list.append([[type_label, ds[i][txt_key]], pixels])
+        count = len(ds) if n_cap is None else min(n_cap, len(ds))
+
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(svm_load_image)(ds[i][img_key], ds[i][txt_key])
+            for i in range(count)
+        )
+
+        for label, pixels in results:
+            data_list.append([[type_label, label], pixels])
 
     return data_list
 
 
-def prepare_training_data(n_math=None, n_text=None):
-    return _load_dataset("train", "train", n_math, n_text)
+def prepare_training_data(n_math=None, n_text=None, n_jobs=-2):
+    return _load_dataset("train", "train", n_math, n_text, n_jobs)
 
 
-def prepare_test_data(n_math=None, n_text=None):
-    return _load_dataset("validation", "test", n_math, n_text)
+def prepare_test_data(n_math=None, n_text=None, n_jobs=-2):
+    return _load_dataset("validation", "test", n_math, n_text, n_jobs)
