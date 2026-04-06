@@ -1,5 +1,5 @@
 # from features import extract_features
-from preprocessing import crop_character, load_image, preprocess
+from preprocessing import crop_character, load_image, preprocess, prepare_training_data, prepare_test_data
 from segmentation import segment
 from structure import AST
 from symbol import Symbol
@@ -7,8 +7,8 @@ from classifier import LoadGeneralSVM, LoadEnsembleSVM, PredictGeneralSVM, Predi
 
 # Basic outline for classical OCR pipeline for LaTeX to Markdown conversion
 
-train_data = prepare_training_data(n_math=115, n_text=115) #Both of these load in 115 samples. If you want entire dataset, leave parameters defaul. 
-test_data = prepare_test_data(n_math=115, n_text=115)
+train_data = prepare_training_data()
+test_data = prepare_test_data()
 
 classifier = SymbolClassifier()
 # classifier.train() # TODO: Train classifier or load pre-trained model
