@@ -19,7 +19,7 @@ from symbol import Symbol, SymbolType
 SCRIPT_MARGIN = 0.3  # Has to be 30% above/below and right of the base symbol
 FRACTION_MARGIN = 0.5  # Has to be 50% above/below the base symbol to be considered a fraction component
 
-BASELINE_TOLERANCE = 0.20  # Expands dominant symbol vertical band by this fraction of its height
+BASELINE_TOLERANCE = 0.15  # Expands dominant symbol vertical band by this fraction of its height
 
 FRACTION_SYMBOL = "_"
 
@@ -96,10 +96,10 @@ class Fraction(Node):
 
 
 #
-# Math Spatial Relation Tree
+# Math Node Builder
 #
-class MathTree:
-    """A helper class to build a math expression tree based on the spatial relationships of the symbols.
+class MathNodeBuilder:
+    """A helper class to build a math node based on the spatial relationships of the symbols.
 
     Assumes increasing y is upwards to make understanding spatial relations and equations easier.
     """
@@ -108,11 +108,11 @@ class MathTree:
         self.children: list[Symbol] = []
 
     def add(self, symbol: Symbol) -> None:
-        """Adds a child node to the MathTree."""
+        """Adds a child node to the MathNodeBuilder."""
         self.children.append(symbol)
 
     def clear(self) -> None:
-        """Clears all child nodes from the MathTree."""
+        """Clears all child nodes from the MathNodeBuilder."""
         self.children.clear()
 
     @staticmethod
@@ -165,16 +165,16 @@ class MathTree:
         """
         # Spatial relation checks
         a_has_b = (
-            MathTree.is_superscript_of(b, a)
-            or MathTree.is_subscript_of(b, a)
-            or MathTree.is_above(b, a)
-            or MathTree.is_below(b, a)
+            MathNodeBuilder.is_superscript_of(b, a)
+            or MathNodeBuilder.is_subscript_of(b, a)
+            or MathNodeBuilder.is_above(b, a)
+            or MathNodeBuilder.is_below(b, a)
         )
         b_has_a = (
-            MathTree.is_superscript_of(a, b)
-            or MathTree.is_subscript_of(a, b)
-            or MathTree.is_above(a, b)
-            or MathTree.is_below(a, b)
+            MathNodeBuilder.is_superscript_of(a, b)
+            or MathNodeBuilder.is_subscript_of(a, b)
+            or MathNodeBuilder.is_above(a, b)
+            or MathNodeBuilder.is_below(a, b)
         )
 
         # A has B within region and B does not have A: then A dominates B
@@ -185,8 +185,8 @@ class MathTree:
             return False
 
         # Symbol class priority (fraction, math, other)
-        a_priority = MathTree.symbol_priority(a)
-        b_priority = MathTree.symbol_priority(b)
+        a_priority = MathNodeBuilder.symbol_priority(a)
+        b_priority = MathNodeBuilder.symbol_priority(b)
         if a_priority > b_priority:
             return True
         if b_priority > a_priority:
@@ -207,7 +207,7 @@ class MathTree:
         best_score = 0
         best_index = 0
         for i, candidate in enumerate(symbols):
-            score = sum(1 for other in symbols if candidate != other and MathTree.dominates(candidate, other))
+            score = sum(1 for other in symbols if candidate != other and MathNodeBuilder.dominates(candidate, other))
             if score > best_score:
                 best_score = score
                 best_index = i
@@ -290,31 +290,26 @@ class MathTree:
 
         return left_syms, numerators, denominators, right_syms
 
-    def to_math_node_no_fraction(self) -> MathNode:
-        """Converts the MathTree to a MathNode, but does NOT apply the fraction-special-case.
+    @staticmethod
+    def _symbols_to_math_node_baseline(symbols: list[Symbol]) -> MathNode:
+        """Render a list of symbols as a MathNode using baseline/superscript/subscript heuristics.
 
-        This is used when recursively rendering numerator/denominator groups inside a fraction to
-        prevent the fraction bar heuristic from re-triggering and causing infinite recursion.
+        NOTE: This does not perform any fraction-bar special-casing. Callers decide whether fraction
+        detection is allowed before delegating here.
         """
         math_node = MathNode()
-
-        # Sort symbols by their position (left to right)
-        symbols = list(self.children)
-        symbols.sort(key=lambda s: s.box.x)
 
         if not symbols:
             return math_node
 
-        # Find dominant symbol (but ignore fraction-bar special-casing here)
-        dominant_symbol_index = MathTree.get_dominant_symbol_index(symbols)
+        # Find dominant symbol (used to define baseline band)
+        dominant_symbol_index = MathNodeBuilder.get_dominant_symbol_index(symbols)
         dominant_symbol = symbols[dominant_symbol_index]
 
-        # Baseline band for expressions
+        # Baseline band for expressions (shrink by BASELINE_TOLERANCE of dominant symbol height)
         dom_top = dominant_symbol.box.top()
         dom_bottom = dominant_symbol.box.bottom()
-        dom_h = dom_top - dom_bottom
-        tol = BASELINE_TOLERANCE * dom_h
-
+        tol = BASELINE_TOLERANCE * (dom_top - dom_bottom)
         baseline_top = dom_top - tol
         baseline_bottom = dom_bottom + tol
 
@@ -324,18 +319,16 @@ class MathTree:
         below_syms: list[Symbol] = []
 
         for sym in symbols:
-            if baseline_bottom <= sym.box.center_y() <= baseline_top:  # On band
-                baseline_syms.append(sym)
-            elif sym.box.center_y() > baseline_top:  # Above band
+            scy = sym.box.center_y()
+            if scy > baseline_top:  # Above band
                 above_syms.append(sym)
-            elif sym.box.center_y() < baseline_bottom:  # Below band
+            elif scy < baseline_bottom:  # Below band
                 below_syms.append(sym)
-            else:
-                # Fallback
+            else:  # On band
                 baseline_syms.append(sym)
 
+        # If baseline detection failed, return all symbols as they came
         if not baseline_syms:
-            # If baseline detection failed, return all symbols as they came in x order
             for sym in symbols:
                 math_node.add(Text(sym.value))
             return math_node
@@ -345,11 +338,11 @@ class MathTree:
         subs_by_anchor: dict[int, list[Symbol]] = {i: [] for i in range(len(baseline_syms))}
 
         for sym in above_syms:
-            anchor_index = MathTree._get_anchor_index(sym, baseline_syms)
+            anchor_index = MathNodeBuilder._get_anchor_index(sym, baseline_syms)
             supers_by_anchor[anchor_index].append(sym)
 
         for sym in below_syms:
-            anchor_index = MathTree._get_anchor_index(sym, baseline_syms)
+            anchor_index = MathNodeBuilder._get_anchor_index(sym, baseline_syms)
             subs_by_anchor[anchor_index].append(sym)
 
         # Emit baseline left-to-right, attaching scripts where present
@@ -358,12 +351,12 @@ class MathTree:
 
             # Only attach scripts that are reasonably to the right (reuse existing heuristics)
             # Prevents some cases where a symbol above earlier baseline gets incorrectly attached
-            super_syms = [s for s in supers_by_anchor[i] if MathTree.is_superscript_of(s, base_sym)]
-            sub_syms = [s for s in subs_by_anchor[i] if MathTree.is_subscript_of(s, base_sym)]
+            super_syms: list[Symbol] = [
+                s for s in supers_by_anchor[i] if MathNodeBuilder.is_superscript_of(s, base_sym)
+            ]
+            sub_syms: list[Symbol] = [s for s in subs_by_anchor[i] if MathNodeBuilder.is_subscript_of(s, base_sym)]
 
-            super_syms.sort(key=lambda s: s.box.x)
-            sub_syms.sort(key=lambda s: s.box.x)
-
+            # TODO: Nested fractions
             if super_syms:
                 sup_text = Text("".join(s.value for s in super_syms))
                 base_node = Superscript(base_node, sup_text)
@@ -376,14 +369,13 @@ class MathTree:
 
         return math_node
 
-    def to_math_node(self) -> MathNode:
-        """Converts the MathTree to a MathNode.
+    def to_math_node(self, *, allow_fraction: bool = True) -> MathNode:
+        """Converts the MathNodeBuilder to a MathNode.
 
-        Current implementation:
-        1) If the dominant symbol is a fraction bar AND it has both numerator and denominator groups, build a Fraction.
-        2) Otherwise, build a baseline band from a non-bar dominant symbol (with tolerance).
-        3) Pick baseline symbols whose vertical center lies in that band.
-        4) Attach non-baseline symbols as simple superscripts/subscripts to the nearest baseline anchor by x.
+        Implementation:
+        1) If allowed, and the dominant symbol is a fraction bar AND it has both numerator and
+           denominator groups, build a Fraction.
+        2) Otherwise, render using baseline/superscript/subscript heuristics.
         """
         math_node = MathNode()
 
@@ -395,120 +387,31 @@ class MathTree:
             return math_node
 
         # Find dominant symbol
-        dominant_symbol_index = MathTree.get_dominant_symbol_index(symbols)
+        dominant_symbol_index = MathNodeBuilder.get_dominant_symbol_index(symbols)
         dominant_symbol = symbols[dominant_symbol_index]
 
         # Fraction handling: only treat as a fraction if we can form BOTH numerator and denominator.
-        # If we can't, we should NOT let the bar influence baseline parsing
-        if dominant_symbol.value == FRACTION_SYMBOL:
-            left_syms, numerator_syms, denominator_syms, right_syms = MathTree._split_fraction_groups(
+        # If we can't, we should NOT let the bar influence baseline parsing.
+        if allow_fraction and dominant_symbol.value == FRACTION_SYMBOL:
+            left_syms, numerator_syms, denominator_syms, right_syms = MathNodeBuilder._split_fraction_groups(
                 symbols, dominant_symbol
             )
 
             if numerator_syms and denominator_syms:
-                # IMPORTANT:
-                # `to_math_node_no_fraction()` returns a *MathNode*, whose __str__ wraps with `$...$`.
-                # When we embed that MathNode inside another MathNode (this `math_node`), we get
-                # nested dollars like: `$$x+$\frac{...}{...}$`.
-                #
-                # To avoid that, inline left/right content by appending their children directly.
                 if left_syms:
-                    left_tree = MathTree()
-                    for s in left_syms:
-                        left_tree.add(s)
-                    left_node = left_tree.to_math_node_no_fraction()
-                    math_node.children.extend(left_node.children)
+                    math_node.children.extend(MathNodeBuilder._symbols_to_math_node_baseline(left_syms).children)
 
-                # Render the fraction itself
-                numerator_tree = MathTree()
-                for s in numerator_syms:
-                    numerator_tree.add(s)
-
-                denominator_tree = MathTree()
-                for s in denominator_syms:
-                    denominator_tree.add(s)
-
-                numerator_node: Node = numerator_tree.to_math_node_no_fraction()
-                denominator_node: Node = denominator_tree.to_math_node_no_fraction()
-
+                numerator_node: Node = MathNodeBuilder._symbols_to_math_node_baseline(numerator_syms)
+                denominator_node: Node = MathNodeBuilder._symbols_to_math_node_baseline(denominator_syms)
                 math_node.add(Fraction(numerator_node, denominator_node))
 
-                # Render right side (inline children to avoid nested `$...$`)
                 if right_syms:
-                    right_tree = MathTree()
-                    for s in right_syms:
-                        right_tree.add(s)
-                    right_node = right_tree.to_math_node_no_fraction()
-                    math_node.children.extend(right_node.children)
+                    math_node.children.extend(MathNodeBuilder._symbols_to_math_node_baseline(right_syms).children)
 
                 return math_node
 
-        # Baseline band for non-fraction expressions
-        dom_top = dominant_symbol.box.top()
-        dom_bottom = dominant_symbol.box.bottom()
-        dom_h = dom_top - dom_bottom
-        tol = BASELINE_TOLERANCE * dom_h
-
-        baseline_top = dom_top - tol
-        baseline_bottom = dom_bottom + tol
-
-        # Partition into baseline, above, below
-        baseline_syms: list[Symbol] = []
-        above_syms: list[Symbol] = []
-        below_syms: list[Symbol] = []
-
-        for sym in symbols:
-            if baseline_bottom <= sym.box.center_y() <= baseline_top:  # On band
-                baseline_syms.append(sym)
-            elif sym.box.center_y() > baseline_top:  # Above band
-                above_syms.append(sym)
-            elif sym.box.center_y() < baseline_bottom:  # Below band
-                below_syms.append(sym)
-            else:
-                # Fallback
-                baseline_syms.append(sym)
-
-        if not baseline_syms:
-            # If baseline detection failed, return all symbols as they came in x order
-            for sym in symbols:
-                math_node.add(Text(sym.value))
-            return math_node
-
-        # Group superscripts/subscripts by baseline anchor
-        supers_by_anchor: dict[int, list[Symbol]] = {i: [] for i in range(len(baseline_syms))}
-        subs_by_anchor: dict[int, list[Symbol]] = {i: [] for i in range(len(baseline_syms))}
-
-        for sym in above_syms:
-            anchor_index = MathTree._get_anchor_index(sym, baseline_syms)
-            supers_by_anchor[anchor_index].append(sym)
-
-        for sym in below_syms:
-            anchor_index = MathTree._get_anchor_index(sym, baseline_syms)
-            subs_by_anchor[anchor_index].append(sym)
-
-        # Emit baseline left-to-right, attaching scripts where present
-        for i, base_sym in enumerate(baseline_syms):
-            base_node: Node = Text(base_sym.value)
-
-            # Only attach scripts that are reasonably to the right (reuse existing heuristics)
-            # Prevents some cases where a symbol above earlier baseline gets incorrectly attached
-            super_syms = [s for s in supers_by_anchor[i] if MathTree.is_superscript_of(base_sym, s)]
-            sub_syms = [s for s in subs_by_anchor[i] if MathTree.is_subscript_of(base_sym, s)]
-
-            super_syms.sort(key=lambda s: s.box.x)
-            sub_syms.sort(key=lambda s: s.box.x)
-
-            if super_syms:
-                sup_text = Text("".join(s.value for s in super_syms))
-                base_node = Superscript(base_node, sup_text)
-
-            if sub_syms:
-                sub_text = Text("".join(s.value for s in sub_syms))
-                base_node = Subscript(base_node, sub_text)
-
-            math_node.add(base_node)
-
-        return math_node
+        # Non-fraction expression
+        return MathNodeBuilder._symbols_to_math_node_baseline(symbols)
 
 
 #
@@ -520,32 +423,31 @@ class AST:
     def __init__(self, symbols: list[Symbol]) -> None:
         self.root: list[Node] = self._build_structure(symbols)
 
-    # Build an AST from the list of symbols and their bounding boxes
     @staticmethod
     def _build_structure(symbols: list[Symbol]) -> list[Node]:
+        """Builds the AST from the list of symbols."""
         nodes: list[Node] = []
-        math_tree = MathTree()
+        math_node_builder = MathNodeBuilder()
 
         for symbol in symbols:
             label_text = Text(symbol.value)
             if symbol.type == SymbolType.MATH:
-                math_tree.add(symbol)
+                math_node_builder.add(symbol)
             else:
                 # Add and clear the math node if we encounter a text symbol after math symbols
-                if math_tree.children:
-                    nodes.append(math_tree.to_math_node())
-                    math_tree.clear()
+                if math_node_builder.children:
+                    nodes.append(math_node_builder.to_math_node())
+                    math_node_builder.clear()
 
                 nodes.append(label_text)
 
-        if math_tree.children:
-            nodes.append(math_tree.to_math_node())
+        if math_node_builder.children:
+            nodes.append(math_node_builder.to_math_node())
 
         return nodes
 
-    # TODO: Render methods
-    # Render the AST to LaTeX & Markdown
     def render_latex_markdown(self) -> str:
+        """Renders the AST to a LaTeX string with math mode delimiters for math expressions."""
         parts: list[str] = []
         for node in self.root:
             if isinstance(node, MathNode):
@@ -583,7 +485,7 @@ if __name__ == "__main__":
     # Fraction line should be dominant symbol here
     print("Dominance scores:")
     for candidate in symbols[1:]:
-        score = sum(1 for other in symbols[1:] if candidate != other and MathTree.dominates(candidate, other))
+        score = sum(1 for other in symbols[1:] if candidate != other and MathNodeBuilder.dominates(candidate, other))
         print(f"  {candidate.value} (area={candidate.box.area()}, height={candidate.box.height}): score={score}")
 
     print()
