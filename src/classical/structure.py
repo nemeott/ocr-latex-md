@@ -52,12 +52,9 @@ class MathNode(Node):
         """Clears all child nodes from the MathNode."""
         self.children.clear()
 
-    def render(self) -> str:
-        """Renders children without adding math mode delimiters."""
-        return "".join(str(child) for child in self.children)
-
     def __str__(self) -> str:
-        return f"${self.render()}$"
+        """Render raw LaTeX for this math expression without adding math mode delimiters."""
+        return "".join(str(child) for child in self.children)
 
 
 # TODO: Multiline math node
@@ -94,20 +91,8 @@ class Fraction(Node):
         self.numerator: Node = numerator
         self.denominator: Node = denominator
 
-    @staticmethod
-    def _render_child(node: Node) -> str:
-        r"""Render a child node suitable for embedding inside \frac{...}{...}.
-
-        If the child is a MathNode, don't include the surrounding $...$.
-        """
-        if isinstance(node, MathNode):
-            return node.render()
-        return str(node)
-
     def __str__(self) -> str:
-        numer = Fraction._render_child(self.numerator)
-        denom = Fraction._render_child(self.denominator)
-        return f"\\frac{{{numer}}}{{{denom}}}"
+        return f"\\frac{{{self.numerator}}}{{{self.denominator}}}"
 
 
 #
@@ -561,7 +546,13 @@ class AST:
     # TODO: Render methods
     # Render the AST to LaTeX & Markdown
     def render_latex_markdown(self) -> str:
-        return "".join(str(node) for node in self.root)
+        parts: list[str] = []
+        for node in self.root:
+            if isinstance(node, MathNode):
+                parts.append(f"${node}$")
+            else:
+                parts.append(str(node))
+        return "".join(parts)
 
 
 # Testing
