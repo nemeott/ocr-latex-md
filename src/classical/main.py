@@ -1,26 +1,29 @@
 # from features import extract_features
+import sys
+from pathlib import Path
+
+from classifier import LoadEnsembleSVM, LoadGeneralSVM, PredictEnsembleSVM, PredictGeneralSVM
 from preprocessing import crop_character, load_image, preprocess
 from segmentation import segment
 from structure import AST
 from symbol import Symbol
-from classifier import LoadGeneralSVM, LoadEnsembleSVM, PredictGeneralSVM, PredictEnsembleSVM
 
 # Basic outline for classical OCR pipeline for LaTeX to Markdown conversion
 
-train_data = prepare_training_data(n_math=115, n_text=115) #Both of these load in 115 samples. If you want entire dataset, leave parameters defaul. 
-test_data = prepare_test_data(n_math=115, n_text=115)
-
-classifier = SymbolClassifier()
-# classifier.train() # TODO: Train classifier or load pre-trained model
+# Load bundled pretrained models (saved under src/classical/models/*.pkl).
+# Note: LoadGeneralSVM/LoadEnsembleSVM append ".pkl", so pass the path WITHOUT extension.
+MODELS_DIR = Path(__file__).resolve().parent / "models"
 
 try:
-    # Load the models
-    generalModel, generalPCA = LoadGeneralSVM("general_svm")
-    ensembleModels, ensembleKMeans, ensemblePCA = LoadEnsembleSVM("ensemble_svm")
-except Exception:
-    # Loading failed
-    raise ValueError("Can't load model. Ensure filenames are correct and models are trained.")
+    general_model, general_pca = LoadGeneralSVM(str(MODELS_DIR / "final_gen_svm"))
+    ensemble_models, ensemble_k_means, ensemble_pca = LoadEnsembleSVM(str(MODELS_DIR / "final_ens_svm"))
+except Exception as e:
+    raise ValueError(
+        f"Can't load pretrained models from '{MODELS_DIR}'. "
+        f"Expected 'final_gen_svm.pkl' and 'final_ens_svm.pkl'. Original error: {e}"
+    ) from None
 
+# TODO: define `image` before running the pipeline (e.g., `image = preprocess(load_image(path))`)
 # Segment each character
 boxes = segment(image)
 
@@ -33,8 +36,8 @@ for box in boxes:
     features = extract_features(cropped)
 
     # Predict the symbol using a trained classifier
-    symbol: Symbol = PredictEnsembleSVM(ensembleModels, ensembleKMeans, ensemblePCA, features)
-    symbol2: Symbol = PredictGeneralSVM(generalModel, generalPCA, features)
+    symbol: Symbol = PredictEnsembleSVM(ensemble_models, ensemble_k_means, ensemble_pca, features)
+    symbol2: Symbol = PredictGeneralSVM(general_model, general_pca, features)
 
     # Append the predicted symbol and its bounding box to the list
     symbols.append(symbol)
