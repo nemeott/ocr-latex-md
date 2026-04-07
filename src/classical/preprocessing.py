@@ -170,3 +170,41 @@ def prepare_training_data(n_math=None, n_text=None, n_jobs=-2):
 
 def prepare_test_data(n_math=None, n_text=None, n_jobs=-2):
     return _load_dataset("validation", "test", n_math, n_text, n_jobs)
+    
+
+def remove_characters(data_list: list[list[list[int]]]):
+
+    for data in data_list:
+        label = data[0][1].strip()
+        while "  " in label:
+            label = label.replace("  ", " ")
+        data[0][1] = label
+
+    return data_list
+
+
+def remove_characters_from_decoder_output(text: str) -> str:
+
+    #strips leading/trailing whitespace and collapses runs of spaces in a single string.
+    #intended for cleaning CRNN decoder outputs that often have extra spaces.
+
+
+    for char in text:
+        if char == "\t":
+            text = text.replace("\t", "")
+        elif char == "\n":
+            text = text.replace("\n", "")
+        elif char == "\r":
+            text = text.replace("\r", "")
+
+    while text and text[0] == " ":
+        text = text[1:]
+
+    while text and text[-1] == " ":
+        text = text[:-1]
+
+    while "  " in text:
+        text = text.replace("  ", " ")
+
+    return text
+
