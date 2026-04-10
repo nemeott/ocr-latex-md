@@ -1,5 +1,8 @@
 import numpy as np
-import joblib # used for saving and loading the models; idea taken from https://medium.com/@sidakmenyadik/save-and-load-machine-learning-models-with-joblib-in-python-kneighborsclassifier-e474512e2683
+import joblib  # used for saving and loading the models; idea taken from https://medium.com/@sidakmenyadik/save-and-load-machine-learning-models-with-joblib-in-python-kneighborsclassifier-e474512e2683
+
+from bounding_box import BoundingBox
+from symbol import Symbol, SymbolType
 from sklearn.svm import LinearSVC
 from sklearn.multioutput import MultiOutputClassifier # SVM with multiple classes
 from sklearn.cluster import KMeans # Used for clustering
@@ -343,3 +346,17 @@ Returns:
 """
 def GetPerformanceMetrics(y_true, y_pred):
     return {"Class 0": GetSingleLabelMetrics(y_true[:, 0], y_pred[:, 0]), "Class 1": GetSingleLabelMetrics(y_true[:, 1], y_pred[:, 1])}
+
+
+class SymbolClassifier:
+    """Per-crop recognizer for the classical pipeline.
+
+    Placeholder until a trained model is connected (e.g. joblib load from `TrainGeneralSVM`).
+    """
+
+    def __init__(self, model_path: str | None = None) -> None:
+        self._model_path = model_path
+
+    def predict(self, features: np.ndarray, box: BoundingBox) -> Symbol:
+        _ = features  # unused until a real model is wired
+        return Symbol("?", SymbolType.TEXT, box)
