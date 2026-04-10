@@ -28,7 +28,7 @@ def PreprocessInputs(data_list, n=32, m=32):
     for labels, features in data_list:
         label0, label1 = labels
         feature_array = np.array(features)
-        reshaped = reshape_image(feature_array, n, m)
+        reshaped = svm_reshape_image(feature_array, n, m)
         
         # Flatten the features
         X_list.append(reshaped.flatten())
