@@ -1,48 +1,36 @@
-# from features import extract_features
+import os
 import sys
-from pathlib import Path
 
-from classifier import LoadEnsembleSVM, LoadGeneralSVM, PredictEnsembleSVM, PredictGeneralSVM
-from preprocessing import crop_character, load_image, preprocess
+# Allow `python main.py` here or `python src/classical/main.py` from repo root
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from classifier import SymbolClassifier
+from features import extract_features
+from preprocessing import crop_character, load_image
 from segmentation import segment
 from structure import AST
 from symbol import Symbol
 
-# Basic outline for classical OCR pipeline for LaTeX to Markdown conversion
 
-# Load bundled pretrained models (saved under src/classical/models/*.pkl).
-# Note: LoadGeneralSVM/LoadEnsembleSVM append ".pkl", so pass the path WITHOUT extension.
-MODELS_DIR = Path(__file__).resolve().parent / "models"
+def main(image_path: str = "example.png") -> str:
+    """Classical OCR demo: segment on full image, crop chars from original BGR, classify."""
+    classifier = SymbolClassifier()
 
-try:
-    general_model, general_pca = LoadGeneralSVM(str(MODELS_DIR / "final_gen_svm"))
-    ensemble_models, ensemble_k_means, ensemble_pca = LoadEnsembleSVM(str(MODELS_DIR / "final_ens_svm"))
-except Exception as e:
-    raise ValueError(
-        f"Can't load pretrained models from '{MODELS_DIR}'. "
-        f"Expected 'final_gen_svm.pkl' and 'final_ens_svm.pkl'. Original error: {e}"
-    ) from None
+    image = load_image(image_path)
+    # `segment` runs `preprocess` internally for connected components
+    boxes = segment(image)
 
-# TODO: define `image` before running the pipeline (e.g., `image = preprocess(load_image(path))`)
-# Segment each character
-boxes = segment(image)
+    symbols: list[Symbol] = []
+    for box in boxes:
+        cropped = crop_character(image, box)
+        features = extract_features(cropped)
+        symbol: Symbol = classifier.predict(features, box)
+        symbols.append(symbol)
 
-symbols: list[Symbol] = []
-for box in boxes:
-    # Get the cropped image of the character
-    cropped = crop_character(image, box)
+    ast = AST(symbols)
+    return ast.render_latex_markdown()
 
-    # Extract the features from the cropped image
-    features = extract_features(cropped)
 
-    # Predict the symbol using a trained classifier
-    symbol: Symbol = PredictEnsembleSVM(ensemble_models, ensemble_k_means, ensemble_pca, features)
-    symbol2: Symbol = PredictGeneralSVM(general_model, general_pca, features)
-
-    # Append the predicted symbol and its bounding box to the list
-    symbols.append(symbol)
-
-ast = AST(symbols)
-markdown = ast.render_latex_markdown()
-
-print(markdown)
+if __name__ == "__main__":
+    path = sys.argv[1] if len(sys.argv) > 1 else "example.png"
+    print(main(path))
