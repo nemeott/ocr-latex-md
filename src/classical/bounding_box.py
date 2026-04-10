@@ -7,6 +7,14 @@ class BoundingBox:
         self.width = width
         self.height = height
 
+    def top(self) -> int:
+        """Returns the top y coordinate of the bounding box."""
+        return self.y + self.height
+
+    def bottom(self) -> int:
+        """Returns the bottom y coordinate of the bounding box."""
+        return self.y
+
     def center_x(self) -> float:
         """Returns the x-coordinate of the center of the bounding box."""
         return self.x + self.width / 2.0

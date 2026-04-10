@@ -1,4 +1,4 @@
-from segmentation import BoundingBox
+from bounding_box import BoundingBox
 from symbol import Symbol, SymbolType
 
 # Detects the structure of the document, such superscripts, subscripts, fractions, etc.
@@ -16,8 +16,10 @@ from symbol import Symbol, SymbolType
 # ]
 
 
-SCRIPT_MARGIN = 0.7  # Has to be 70% to the right
-FRACTION_MARGIN = 0.5  # Has to be 50% above/below
+SCRIPT_MARGIN = 0.3  # Has to be 30% above/below and right of the base symbol
+FRACTION_MARGIN = 0.5  # Has to be 50% above/below the base symbol to be considered a fraction component
+
+BASELINE_TOLERANCE = 0.15  # Expands dominant symbol vertical band by this fraction of its height
 
 FRACTION_SYMBOL = "_"
 
@@ -30,7 +32,7 @@ class Text(Node):
     """Represents a piece of text. Can be a single symbol or a sequence of symbols."""
 
     def __init__(self, text: str) -> None:
-        self.text = text
+        self.text: str = text
 
     def __str__(self) -> str:
         return self.text
@@ -39,8 +41,8 @@ class Text(Node):
 class MathNode(Node):
     """Represents a mathematical expression, which can contain multiple child nodes, including Text nodes."""
 
-    def __init__(self) -> None:
-        self.children: list[Node] = []
+    def __init__(self, children: list[Node] | None = None) -> None:
+        self.children: list[Node] = [] if children is None else children
 
     def add(self, node: Node) -> None:
         """Adds a child node to the MathNode."""
@@ -51,7 +53,8 @@ class MathNode(Node):
         self.children.clear()
 
     def __str__(self) -> str:
-        return f"${''.join(str(child) for child in self.children)}$"
+        """Render raw LaTeX for this math expression without adding math mode delimiters."""
+        return "".join(str(child) for child in self.children)
 
 
 # TODO: Multiline math node
@@ -59,53 +62,61 @@ class MathNode(Node):
 
 class Superscript(Node):
     def __init__(self, base: Node, superscript: Node) -> None:
-        self.base = base
-        self.superscript = superscript
+        self.base: Node = base
+        self.superscript: Node = superscript
 
     def __str__(self) -> str:
-        return f"{self.base}^{self.superscript}"
+        # Use braces for multi-character superscripts
+        sup = str(self.superscript)
+        if len(sup) == 1:
+            return f"{self.base}^{sup}"
+        return f"{self.base}^{{{sup}}}"
 
 
 class Subscript(Node):
     def __init__(self, base: Node, subscript: Node) -> None:
-        self.base = base
-        self.subscript = subscript
+        self.base: Node = base
+        self.subscript: Node = subscript
 
     def __str__(self) -> str:
-        return f"{self.base}_{self.subscript}"
+        # Use braces for multi-character subscripts
+        sub = str(self.subscript)
+        if len(sub) == 1:
+            return f"{self.base}_{sub}"
+        return f"{self.base}_{{{sub}}}"
 
 
 class Fraction(Node):
     def __init__(self, numerator: Node, denominator: Node) -> None:
-        self.numerator = numerator
-        self.denominator = denominator
+        self.numerator: Node = numerator
+        self.denominator: Node = denominator
 
     def __str__(self) -> str:
         return f"\\frac{{{self.numerator}}}{{{self.denominator}}}"
 
 
 #
-# Math Spatial Relation Tree
+# Math Node Builder
 #
-class MathTree:
-    """A helper class to build a math expression tree based on the spatial relationships of the symbols.
+class MathNodeBuilder:
+    """A helper class to build a math node based on the spatial relationships of the symbols.
 
-    Assumes increasing y is upwards to make understanding equations easier.
+    Assumes increasing y is upwards to make understanding spatial relations and equations easier.
     """
 
     def __init__(self) -> None:
         self.children: list[Symbol] = []
 
     def add(self, symbol: Symbol) -> None:
-        """Adds a child node to the MathTree."""
+        """Adds a child node to the MathNodeBuilder."""
         self.children.append(symbol)
 
     def clear(self) -> None:
-        """Clears all child nodes from the MathTree."""
+        """Clears all child nodes from the MathNodeBuilder."""
         self.children.clear()
 
     @staticmethod
-    def is_superscript_of(a: Symbol, b: Symbol) -> bool:
+    def is_superscript_of(b: Symbol, a: Symbol) -> bool:
         """Returns True if B is a superscript of A."""
         return (
             b.box.center_x() > (a.box.center_x() + a.box.width * SCRIPT_MARGIN)  # B right A within margin
@@ -113,20 +124,21 @@ class MathTree:
         )
 
     @staticmethod
-    def is_subscript_of(a: Symbol, b: Symbol) -> bool:
+    def is_subscript_of(b: Symbol, a: Symbol) -> bool:
         """Returns True if B is a subscript of A."""
         return (
             b.box.center_x() > (a.box.center_x() + a.box.width * SCRIPT_MARGIN)  # B right of A within margin
             and b.box.center_y() < (a.box.center_y() - a.box.height * SCRIPT_MARGIN)  # B below A within margin
         )
 
+    # TODO: Refactor
     @staticmethod
-    def is_above(a: Symbol, b: Symbol) -> bool:
+    def is_above(b: Symbol, a: Symbol) -> bool:
         """Returns True if B is above A."""
         return b.box.center_y() > a.box.center_y() + a.box.height * FRACTION_MARGIN  # B above A within margin
 
     @staticmethod
-    def is_below(a: Symbol, b: Symbol) -> bool:
+    def is_below(b: Symbol, a: Symbol) -> bool:
         """Returns True if B is below A."""
         return b.box.center_y() < a.box.center_y() - a.box.height * FRACTION_MARGIN  # B below A within margin
 
@@ -143,26 +155,26 @@ class MathTree:
         return 0
 
     @staticmethod
-    def dominates(a: Symbol, b: Symbol) -> bool:  # noqa: PLR0911
+    def dominates(a: Symbol, b: Symbol) -> bool:
         """Determines if A dominates B based on their bounding boxes.
 
         Uses the following rules to determine the dominant symbol:
             1. B is in region of A, and A is not in region of B
-            2. Symbol class (e.g. fraction > superscript > subscript > normal)
+            2. Symbol class (e.g. fraction > math > normal)
             2. Area is used as a tiebreaker if both A and B are in each other's region
         """
         # Spatial relation checks
         a_has_b = (
-            MathTree.is_superscript_of(a, b)
-            or MathTree.is_subscript_of(a, b)
-            or MathTree.is_above(a, b)
-            or MathTree.is_below(a, b)
+            MathNodeBuilder.is_superscript_of(b, a)
+            or MathNodeBuilder.is_subscript_of(b, a)
+            or MathNodeBuilder.is_above(b, a)
+            or MathNodeBuilder.is_below(b, a)
         )
         b_has_a = (
-            MathTree.is_superscript_of(b, a)
-            or MathTree.is_subscript_of(b, a)
-            or MathTree.is_above(b, a)
-            or MathTree.is_below(b, a)
+            MathNodeBuilder.is_superscript_of(a, b)
+            or MathNodeBuilder.is_subscript_of(a, b)
+            or MathNodeBuilder.is_above(a, b)
+            or MathNodeBuilder.is_below(a, b)
         )
 
         # A has B within region and B does not have A: then A dominates B
@@ -172,10 +184,12 @@ class MathTree:
         if b_has_a and not a_has_b:
             return False
 
-        # Symbol class priority (operators, fraction bar, etc.)
-        if MathTree.symbol_priority(a) > MathTree.symbol_priority(b):
+        # Symbol class priority (fraction, math, other)
+        a_priority = MathNodeBuilder.symbol_priority(a)
+        b_priority = MathNodeBuilder.symbol_priority(b)
+        if a_priority > b_priority:
             return True
-        if MathTree.symbol_priority(b) > MathTree.symbol_priority(a):
+        if b_priority > a_priority:
             return False
 
         # Size comparison (area, then height) since priorities are equal
@@ -184,36 +198,220 @@ class MathTree:
         return a.box.height > b.box.height
 
     @staticmethod
-    def get_dominant_symbol(symbols: list[Symbol]) -> Symbol:
+    def get_dominant_symbol_index(symbols: list[Symbol]) -> int:
         """Determines the dominant symbol in a list of symbols based on their bounding boxes."""
         if len(symbols) == 1:
-            return symbols[0]
+            return 0
 
         # Find the symbol that dominates the most other symbols
-        best_symbol = symbols[0]
         best_score = 0
-
-        for candidate in symbols:
-            score = sum(1 for other in symbols if candidate != other and MathTree.dominates(candidate, other))
+        best_index = 0
+        for i, candidate in enumerate(symbols):
+            score = sum(1 for other in symbols if candidate != other and MathNodeBuilder.dominates(candidate, other))
             if score > best_score:
                 best_score = score
-                best_symbol = candidate
+                best_index = i
 
-        return best_symbol
+        return best_index
 
-    def to_math_node(self) -> MathNode:
-        """Converts the MathTree to a MathNode."""
+    @staticmethod
+    def _get_anchor_index(sym: Symbol, anchors: list[Symbol]) -> int:
+        """Returns index of best baseline anchor for a symbol based on x-overlap, else nearest by x distance."""
+        sx0 = sym.box.x
+        sx1 = sym.box.x + sym.box.width
+        scx = sym.box.center_x()
+
+        best_overlap = -1
+        best_dist = float("inf")
+        best_i = 0
+
+        for i, anc in enumerate(anchors):
+            ax0 = anc.box.x
+            ax1 = anc.box.x + anc.box.width
+            acx = anc.box.center_x()
+
+            overlap = max(0, min(sx1, ax1) - max(sx0, ax0))
+            dist = abs(scx - acx)
+
+            if overlap > best_overlap or (overlap == best_overlap and dist < best_dist):
+                best_overlap = overlap
+                best_dist = dist
+                best_i = i
+
+        return best_i
+
+    @staticmethod
+    def _split_fraction_groups(
+        symbols: list[Symbol],
+        bar: Symbol,
+    ) -> tuple[list[Symbol], list[Symbol], list[Symbol], list[Symbol]]:
+        """Split fraction candidates plus leftover symbols not participating in the fraction.
+
+        Heuristic:
+        - Only consider symbols that horizontally overlap the bar (common for printed fractions)
+        - Use sign of center_y - bar_center_y to decide numerator vs denominator
+
+        Returns: (left_syms, numerator_syms, denominator_syms, right_syms)
+        """
+        bar_x0 = bar.box.x
+        bar_x1 = bar.box.x + bar.box.width
+        bar_cy = bar.box.center_y()
+
+        left_syms: list[Symbol] = []
+        numerators: list[Symbol] = []
+        denominators: list[Symbol] = []
+        right_syms: list[Symbol] = []
+
+        for sym in symbols:
+            if sym is bar:
+                continue
+
+            # Only consider symbols that horizontally overlap the bar
+            sx0 = sym.box.x
+            sx1 = sym.box.x + sym.box.width
+            overlaps_bar = max(0, min(sx1, bar_x1) - max(sx0, bar_x0)) > 0
+
+            # Use vertical position to determine numerator or denominator if overlapping
+            if overlaps_bar:
+                if sym.box.center_y() > bar_cy:
+                    numerators.append(sym)
+                    continue
+                if sym.box.center_y() < bar_cy:
+                    denominators.append(sym)
+                    continue
+
+            # Non-overlapping symbols: route left/right based on horizontal position relative to bar
+            scx = sym.box.center_x()
+            bcx = bar.box.center_x()
+            if scx <= bcx:
+                left_syms.append(sym)
+            elif bcx < scx:
+                right_syms.append(sym)
+
+        return left_syms, numerators, denominators, right_syms
+
+    @staticmethod
+    def _symbols_to_math_node_baseline(symbols: list[Symbol]) -> MathNode:
+        """Render a list of symbols as a MathNode using baseline/superscript/subscript heuristics.
+
+        NOTE: This does not perform any fraction-bar special-casing. Callers decide whether fraction
+        detection is allowed before delegating here.
+        """
+        math_node = MathNode()
+
+        if not symbols:
+            return math_node
+
+        # Find dominant symbol (used to define baseline band)
+        dominant_symbol_index = MathNodeBuilder.get_dominant_symbol_index(symbols)
+        dominant_symbol = symbols[dominant_symbol_index]
+
+        # Baseline band for expressions (shrink by BASELINE_TOLERANCE of dominant symbol height)
+        dom_top = dominant_symbol.box.top()
+        dom_bottom = dominant_symbol.box.bottom()
+        tol = BASELINE_TOLERANCE * (dom_top - dom_bottom)
+        baseline_top = dom_top - tol
+        baseline_bottom = dom_bottom + tol
+
+        # Partition into baseline, above, below
+        baseline_syms: list[Symbol] = []
+        above_syms: list[Symbol] = []
+        below_syms: list[Symbol] = []
+
+        for sym in symbols:
+            scy = sym.box.center_y()
+            if scy > baseline_top:  # Above band
+                above_syms.append(sym)
+            elif scy < baseline_bottom:  # Below band
+                below_syms.append(sym)
+            else:  # On band
+                baseline_syms.append(sym)
+
+        # If baseline detection failed, return all symbols as they came
+        if not baseline_syms:
+            for sym in symbols:
+                math_node.add(Text(sym.value))
+            return math_node
+
+        # Group superscripts/subscripts by baseline anchor
+        supers_by_anchor: dict[int, list[Symbol]] = {i: [] for i in range(len(baseline_syms))}
+        subs_by_anchor: dict[int, list[Symbol]] = {i: [] for i in range(len(baseline_syms))}
+
+        for sym in above_syms:
+            anchor_index = MathNodeBuilder._get_anchor_index(sym, baseline_syms)
+            supers_by_anchor[anchor_index].append(sym)
+
+        for sym in below_syms:
+            anchor_index = MathNodeBuilder._get_anchor_index(sym, baseline_syms)
+            subs_by_anchor[anchor_index].append(sym)
+
+        # Emit baseline left-to-right, attaching scripts where present
+        for i, base_sym in enumerate(baseline_syms):
+            base_node: Node = Text(base_sym.value)
+
+            # Only attach scripts that are reasonably to the right (reuse existing heuristics)
+            # Prevents some cases where a symbol above earlier baseline gets incorrectly attached
+            super_syms: list[Symbol] = [
+                s for s in supers_by_anchor[i] if MathNodeBuilder.is_superscript_of(s, base_sym)
+            ]
+            sub_syms: list[Symbol] = [s for s in subs_by_anchor[i] if MathNodeBuilder.is_subscript_of(s, base_sym)]
+
+            # TODO: Nested fractions
+            if super_syms:
+                sup_text = Text("".join(s.value for s in super_syms))
+                base_node = Superscript(base_node, sup_text)
+
+            if sub_syms:
+                sub_text = Text("".join(s.value for s in sub_syms))
+                base_node = Subscript(base_node, sub_text)
+
+            math_node.add(base_node)
+
+        return math_node
+
+    def to_math_node(self, *, allow_fraction: bool = True) -> MathNode:
+        """Converts the MathNodeBuilder to a MathNode.
+
+        Implementation:
+        1) If allowed, and the dominant symbol is a fraction bar AND it has both numerator and
+           denominator groups, build a Fraction.
+        2) Otherwise, render using baseline/superscript/subscript heuristics.
+        """
         math_node = MathNode()
 
         # Sort symbols by their position (left to right)
-        symbols = self.children
+        symbols = list(self.children)
         symbols.sort(key=lambda s: s.box.x)
 
-        dominant_symbol = MathTree.get_dominant_symbol(symbols)
+        if not symbols:
+            return math_node
 
-        # TODO: Build math node
+        # Find dominant symbol
+        dominant_symbol_index = MathNodeBuilder.get_dominant_symbol_index(symbols)
+        dominant_symbol = symbols[dominant_symbol_index]
 
-        return math_node
+        # Fraction handling: only treat as a fraction if we can form BOTH numerator and denominator.
+        # If we can't, we should NOT let the bar influence baseline parsing.
+        if allow_fraction and dominant_symbol.value == FRACTION_SYMBOL:
+            left_syms, numerator_syms, denominator_syms, right_syms = MathNodeBuilder._split_fraction_groups(
+                symbols, dominant_symbol
+            )
+
+            if numerator_syms and denominator_syms:
+                if left_syms:
+                    math_node.children.extend(MathNodeBuilder._symbols_to_math_node_baseline(left_syms).children)
+
+                numerator_node: Node = MathNodeBuilder._symbols_to_math_node_baseline(numerator_syms)
+                denominator_node: Node = MathNodeBuilder._symbols_to_math_node_baseline(denominator_syms)
+                math_node.add(Fraction(numerator_node, denominator_node))
+
+                if right_syms:
+                    math_node.children.extend(MathNodeBuilder._symbols_to_math_node_baseline(right_syms).children)
+
+                return math_node
+
+        # Non-fraction expression
+        return MathNodeBuilder._symbols_to_math_node_baseline(symbols)
 
 
 #
@@ -225,43 +423,51 @@ class AST:
     def __init__(self, symbols: list[Symbol]) -> None:
         self.root: list[Node] = self._build_structure(symbols)
 
-    # Build an AST from the list of symbols and their bounding boxes
     @staticmethod
     def _build_structure(symbols: list[Symbol]) -> list[Node]:
+        """Builds the AST from the list of symbols."""
         nodes: list[Node] = []
-        math_tree = MathTree()
+        math_node_builder = MathNodeBuilder()
 
         for symbol in symbols:
-            # TODO: Use bounding box spatial relationships
-            # TODO: Clustering based on box positions?
-
             label_text = Text(symbol.value)
             if symbol.type == SymbolType.MATH:
-                math_tree.add(symbol)
+                math_node_builder.add(symbol)
             else:
                 # Add and clear the math node if we encounter a text symbol after math symbols
-                if math_tree.children:
-                    nodes.append(math_tree.to_math_node())
-                    math_tree.clear()
+                if math_node_builder.children:
+                    nodes.append(math_node_builder.to_math_node())
+                    math_node_builder.clear()
 
                 nodes.append(label_text)
 
-        if math_tree.children:
-            nodes.append(math_tree.to_math_node())
+        if math_node_builder.children:
+            nodes.append(math_node_builder.to_math_node())
 
         return nodes
 
-    # TODO: Render methods
-    # Render the AST to LaTeX & Markdown
     def render_latex_markdown(self) -> str:
-        return "".join(str(node) for node in self.root)
+        """Renders the AST to a LaTeX string with math mode delimiters for math expressions."""
+        parts: list[str] = []
+        for node in self.root:
+            if isinstance(node, MathNode):
+                parts.append(f"${node}$")
+            else:
+                parts.append(str(node))
+        return "".join(parts)
 
 
 # Testing
 if __name__ == "__main__":
-    """
+    r"""
     Hello world!
-    $x+y^2$
+    $x_1+y^2$
+
+    Hello world!
+    $x_1+\frac{y^2}{13}$
+
+    Hello world!
+    $\frac{x_1+y^2}{13}$
     """
     symbols: list[Symbol] = [
         Symbol("Hello world! ", SymbolType.TEXT, BoundingBox(0, 20, 100, 10)),
@@ -270,20 +476,18 @@ if __name__ == "__main__":
         Symbol("+", SymbolType.MATH, BoundingBox(10, 0, 10, 10)),
         Symbol("y", SymbolType.MATH, BoundingBox(20, 0, 10, 10)),
         Symbol("2", SymbolType.MATH, BoundingBox(30, 8, 5, 5)),  # Slightly above the y (superscript)
-        Symbol("_", SymbolType.MATH, BoundingBox(23, -15, 30, 5)),  # Fraction below
-        Symbol("13", SymbolType.MATH, BoundingBox(20, -27, 10, 10)),  # Denominator
+        Symbol("_", SymbolType.MATH, BoundingBox(23, -15, 35, 5)),  # Fraction below
+        Symbol("65", SymbolType.MATH, BoundingBox(20, -27, 10, 10)),  # Denominator
     ]
 
     ast = AST(symbols)
 
     # Fraction line should be dominant symbol here
-    print(MathTree.get_dominant_symbol(symbols[1:]))
     print("Dominance scores:")
     for candidate in symbols[1:]:
-        score = sum(1 for other in symbols[1:] if candidate != other and MathTree.dominates(candidate, other))
+        score = sum(1 for other in symbols[1:] if candidate != other and MathNodeBuilder.dominates(candidate, other))
         print(f"  {candidate.value} (area={candidate.box.area()}, height={candidate.box.height}): score={score}")
 
     print()
 
-    # FIXME: Use structure detection
     print(ast.render_latex_markdown())
