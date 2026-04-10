@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-from bounding_box import BoundingBox
 from PIL import Image as PILImage
 from preprocessing import preprocess
 
@@ -43,7 +42,7 @@ def svm_load_image(path_or_image, label: str, size: int = 28) -> list:
 
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     else:
-        raise TypeError(f"Expected a file path, PIL Image, or np.ndarray")
+        raise TypeError("Expected a file path, PIL Image, or np.ndarray")
 
     # Pad to square to preserve aspect ratio before resizing
     h, w = image.shape[:2]
