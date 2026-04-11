@@ -21,11 +21,9 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from classifier import SymbolClassifier
-from features import extract_features
 from preprocessing import crop_character, load_image
 from segmentation import segment
 from structure import AST
-from symbol import Symbol
 
 
 def main(image_path: str = "example.png", min_area: int = 0) -> str:
