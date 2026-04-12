@@ -1,14 +1,14 @@
 import cv2
 import numpy as np
 from joblib import Parallel, delayed
+
 from bounding_box import BoundingBox
-from data_loading import load_math_writing, load_iam_lines
+from data_loading import load_iam_lines, load_math_writing
 
 
 def load_image(image_path: str) -> np.ndarray:
-
-    #this function was wrriten with the help of LLM's
-    #I asked the llm what functions from the opncv library we needed to use to load the image
+    # this function was wrriten with the help of LLM's
+    # I asked the llm what functions from the opncv library we needed to use to load the image
 
     """
     This function help us to load the image
@@ -27,9 +27,8 @@ def load_image(image_path: str) -> np.ndarray:
 
 
 def preprocess(image: np.ndarray) -> np.ndarray:
-
-    #this function was wrriten with the help of LLM
-    #I utilized LLM to help me understand what methods I needed to use to implement the image processing methods I needed. So functions like gaussianblur, threshold...
+    # this function was wrriten with the help of LLM
+    # I utilized LLM to help me understand what methods I needed to use to implement the image processing methods I needed. So functions like gaussianblur, threshold...
 
     """
     This function help us to preprocess the image
@@ -40,25 +39,25 @@ def preprocess(image: np.ndarray) -> np.ndarray:
         binary: The binary image
     """
 
-    #This codebelow help us to convert the image to grayscale
+    # This codebelow help us to convert the image to grayscale
     if image.ndim == 3:
 
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     else:
         gray = image
 
-    #Apply CLAHE to normalize contrast across different datasets (IAM vs MathWriting)
+    # Apply CLAHE to normalize contrast across different datasets (IAM vs MathWriting)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
     gray = clahe.apply(gray)
 
-    #This cope below help us to remove noise from the image
+    # This cope below help us to remove noise from the image
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    #Binarize with Otsu's method
+    # Binarize with Otsu's method
     ignore, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
-    #Morphological close to fix broken strokes before segmentation
+    # Morphological close to fix broken strokes before segmentation
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 
     binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
@@ -67,9 +66,8 @@ def preprocess(image: np.ndarray) -> np.ndarray:
 
 
 def crop_character(image: np.ndarray, box: BoundingBox, size: int = 28) -> np.ndarray:
-
-    #this function was wrriten with the help of LLM's
-    #I needed help with the logic of the function, so I asked the llm to help me with this logic to implement what I needed this funciton to do 
+    # this function was wrriten with the help of LLM's
+    # I needed help with the logic of the function, so I asked the llm to help me with this logic to implement what I needed this funciton to do
 
     """
     This function help us to crop the character from the image.
@@ -124,7 +122,6 @@ def crop_character(image: np.ndarray, box: BoundingBox, size: int = 28) -> np.nd
 
 
 def _load_dataset(math_split, text_split, n_math=None, n_text=None, n_jobs=-2):
-
     """
     This function help us to load the dataset and convert it to the format we need for the SVM training
 
@@ -149,13 +146,12 @@ def _load_dataset(math_split, text_split, n_math=None, n_text=None, n_jobs=-2):
         (load_iam_lines(text_split), "image", "text", 0, n_text),
     ]:
 
-    #Used LLM here to help me implmenet parallel processing for the dataset loading.
+        # Used LLM here to help me implmenet parallel processing for the dataset loading.
 
         count = len(ds) if n_cap is None else min(n_cap, len(ds))
 
         results = Parallel(n_jobs=n_jobs)(
-            delayed(svm_load_image)(ds[i][img_key], ds[i][txt_key])
-            for i in range(count)
+            delayed(svm_load_image)(ds[i][img_key], ds[i][txt_key]) for i in range(count)
         )
 
         for label, pixels in results:
@@ -170,10 +166,9 @@ def prepare_training_data(n_math=None, n_text=None, n_jobs=-2):
 
 def prepare_test_data(n_math=None, n_text=None, n_jobs=-2):
     return _load_dataset("validation", "test", n_math, n_text, n_jobs)
-    
+
 
 def remove_characters(data_list: list[list[list[int]]]):
-
     for data in data_list:
         label = data[0][1].strip()
         while "  " in label:
@@ -184,10 +179,8 @@ def remove_characters(data_list: list[list[list[int]]]):
 
 
 def remove_characters_from_decoder_output(text: str) -> str:
-
-    #strips leading/trailing whitespace and collapses runs of spaces in a single string.
-    #intended for cleaning CRNN decoder outputs that often have extra spaces.
-
+    # strips leading/trailing whitespace and collapses runs of spaces in a single string.
+    # intended for cleaning CRNN decoder outputs that often have extra spaces.
 
     for char in text:
         if char == "\t":
