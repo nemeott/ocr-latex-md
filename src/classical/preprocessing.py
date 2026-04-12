@@ -208,3 +208,13 @@ def remove_characters_from_decoder_output(text: str) -> str:
 
     return text
 
+
+def remove_spaces_before_characters(text: str) -> str:
+
+    punctuation = ".,!?;:)]}'\"-"
+    for char in punctuation:
+        while " " + char in text:
+            text = text.replace(" " + char, char)
+
+    return text
+
