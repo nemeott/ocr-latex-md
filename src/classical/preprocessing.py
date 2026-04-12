@@ -1,9 +1,8 @@
 import cv2
 import numpy as np
-from joblib import Parallel, delayed
-
 from bounding_box import BoundingBox
 from data_loading import load_iam_lines, load_math_writing
+from joblib import Parallel, delayed
 
 
 def load_image(image_path: str) -> np.ndarray:
@@ -41,7 +40,6 @@ def preprocess(image: np.ndarray) -> np.ndarray:
 
     # This codebelow help us to convert the image to grayscale
     if image.ndim == 3:
-
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     else:
         gray = image
@@ -97,23 +95,32 @@ def crop_character(image: np.ndarray, box: BoundingBox, size: int = 28) -> np.nd
     if cropped.ndim == 3:
         cropped = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
 
-    # Pad to square (preserve aspect ratio)
-    ch, cw = cropped.shape[:2]
+    # Binarize using the shared preprocessing pipeline (CLAHE, blur, Otsu, morph close)
+    binary = preprocess(cropped)
+
+    # Re-binarize because resize introduces gray interpolation artifacts
+    _, binary = cv2.threshold(binary, 0, 255, cv2.THRESH_BINARY)
+
+    # Tight crop: remove all-white rows/columns
+    mask = binary < 255
+    if mask.any():
+        coords = np.argwhere(mask)
+        y0, x0 = coords.min(axis=0)
+        y1, x1 = coords.max(axis=0) + 1
+        binary = binary[y0:y1, x0:x1]
+
+    # Pad to square with black
+    ch, cw = binary.shape[:2]
     side = max(ch, cw)
     pad_top = (side - ch) // 2
     pad_bottom = side - ch - pad_top
     pad_left = (side - cw) // 2
     pad_right = side - cw - pad_left
-    squared = np.pad(cropped, ((pad_top, pad_bottom), (pad_left, pad_right)), mode="constant", constant_values=0)
+    binary = np.pad(binary, ((pad_top, pad_bottom), (pad_left, pad_right)), mode="constant", constant_values=0)
 
-    # Binarize using the shared preprocessing pipeline (CLAHE, blur, Otsu, morph close)
-    binary = preprocess(squared)
-
-    # Resize to match SVM training format
+    # Resize to final size
     binary = cv2.resize(binary, (size, size), interpolation=cv2.INTER_AREA)
-
-    # Re-binarize because resize introduces gray interpolation artifacts
-    ignored, binary = cv2.threshold(binary, 0, 255, cv2.THRESH_BINARY)
+    _, binary = cv2.threshold(binary, 0, 255, cv2.THRESH_BINARY)
 
     # Convert from 0/255 to 0/1 to match svm_load_image output
     binary = (binary > 0).astype(np.uint8)
@@ -145,14 +152,11 @@ def _load_dataset(math_split, text_split, n_math=None, n_text=None, n_jobs=-2):
         (load_math_writing(math_split), "png", "txt", 1, n_math),
         (load_iam_lines(text_split), "image", "text", 0, n_text),
     ]:
-
         # Used LLM here to help me implmenet parallel processing for the dataset loading.
 
         count = len(ds) if n_cap is None else min(n_cap, len(ds))
 
-        results = Parallel(n_jobs=n_jobs)(
-            delayed(svm_load_image)(ds[i][img_key], ds[i][txt_key]) for i in range(count)
-        )
+        results = Parallel(n_jobs=n_jobs)(delayed(svm_load_image)(ds[i][img_key], ds[i][txt_key]) for i in range(count))
 
         for label, pixels in results:
             data_list.append([[type_label, label], pixels])
@@ -210,4 +214,3 @@ def remove_spaces_before_characters(text: str) -> str:
             text = text.replace(" " + char, char)
 
     return text
-
