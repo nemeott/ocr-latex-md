@@ -1,12 +1,8 @@
 import numpy as np
-import pandas as pd
 import os
 import time
 import joblib
 import matplotlib.pyplot as plt
-from PIL import Image, ImageOps
-from contextlib import redirect_stdout, redirect_stderr
-from sklearn.model_selection import train_test_split
 from classifier import *
 
 from datasets import load_dataset  
