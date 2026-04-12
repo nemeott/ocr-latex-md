@@ -377,6 +377,155 @@ def PredictEnsembleSVMHOG(model, kmeans, pca, X_test, Orientations):
     X_test_HOG = np.array(X_test_HOG)
     return PredictEnsembleSVM(model, kmeans, pca, X_test_HOG)
 
+"""
+Saves the Hierarchical SVM models
+Args:
+    domain_model (LinearSVC): The domain SVM model to save
+    label_model (MultiOutputClassifier): The label SVM model to save
+    pca (PCA): The PCA model to save
+    filename (str, optional): File location, defaults to "hierarchical_svm"
+"""
+def SaveHierarchicalSVM(domain_model, label_model, pca, filename="hierarchical_svm"):
+    joblib.dump({'domain_model': domain_model, 'label_model': label_model, 'pca': pca}, f"{filename}.pkl")
+
+"""
+Loads the Hierarchical SVM models
+Args:
+    filename (str, optional): File location, defaults to "hierarchical_svm"
+Returns:
+    LinearSVC, MultiOutputClassifier, PCA: The saved domain SVM, label SVM, and PCA
+"""
+def LoadHierarchicalSVM(filename="hierarchical_svm"):
+    data = joblib.load(f"{filename}.pkl")
+    return data['domain_model'], data['label_model'], data['pca']
+
+"""
+Generates predictions from the Hierarchical SVM models
+Args:
+    domain_model (LinearSVC): The trained domain SVM model
+    label_model (MultiOutputClassifier): The trained label SVM model
+    pca (PCA): The fitted PCA transformer used during training
+    X_test (np.ndarray): Flattened image of shape (n_samples, n_features)
+Returns:
+    np.ndarray: Array of predicted labels for each input
+"""
+def PredictHierarchicalSVM(domain_model, label_model, pca, X_test):
+    X_pca = pca.transform(X_test)
+    
+    domain_preds = domain_model.predict(X_pca).astype(float).reshape(-1, 1) # Error without casting to a float
+    
+    # Combine and Predict Labels
+    X_combined = np.hstack((X_pca, domain_preds))
+    return label_model.predict(X_combined)
+
+"""
+Trains the Hierarchical SVM model (predicts domain first, then uses it for final label)
+Args:
+    X_train (np.ndarray): The flattened, normalized input image, shape of (n_samples, n_features))
+    y_train (np.ndarray): The target labels for each sample
+    n_components (int, optional): Number for PCA, defaults to 50
+    c (float, optional): C parameter for SVM
+Returns:
+    LinearSVC, MultiOutputClassifier, PCA: The trained domain SVM, label SVM, and PCA
+"""
+def TrainHierarchicalSVM(X_train, y_train, n_components=50, c=1):
+    pca = PCA(n_components=n_components).fit(X_train)
+    X_pca = pca.transform(X_train)
+    
+    domain_labels = y_train[:, 0].astype(int) # Was getting an error if I did not have this cas to int
+    
+    # 1. Train Domain Classifier
+    domain_model = LinearSVC(max_iter=MAX_ITERS, dual=False, C=c)
+    domain_model.fit(X_pca, domain_labels)
+    
+    domain_preds = domain_model.predict(X_pca).astype(float).reshape(-1, 1) # Was getting an error if I did not have this cast to float
+    
+    # 2. Train Label Classifier
+    X_combined = np.hstack((X_pca, domain_preds))
+    
+    label_model = LinearSVC(max_iter=MAX_ITERS, dual=False, C=c)
+    label_multi = MultiOutputClassifier(label_model).fit(X_combined, y_train)
+    
+    return domain_model, label_multi, pca
+
+"""
+Saves the Hierarchical SVM models using Histogram of Oriented Gradients
+Args:
+    domain_model (LinearSVC): The domain SVM model to save
+    label_model (MultiOutputClassifier): The label SVM model to save
+    pca (PCA): The PCA model to save
+    Orientations (int): The orientations number used to save
+    filename (str, optional): File location, defaults to "hierarchical_svm_hog"
+"""
+def SaveHierarchicalSVMHOG(domain_model, label_model, pca, Orientations, filename="hierarchical_svm_hog"):
+    joblib.dump({
+        'domain_model': domain_model, 
+        'label_model': label_model, 
+        'pca': pca, 
+        'orientations': Orientations
+    }, f"{filename}.pkl")
+
+"""
+Loads the Hierarchical SVM models using Histogram of Oriented Gradients
+Args:
+    filename (str, optional): File location, defaults to "hierarchical_svm_hog"
+Returns:
+    LinearSVC, MultiOutputClassifier, PCA, int: The saved domain SVM, label SVM, PCA, and the number of orientations
+"""
+def LoadHierarchicalSVMHOG(filename="hierarchical_svm_hog"):
+    data = joblib.load(f"{filename}.pkl")
+    return data['domain_model'], data['label_model'], data['pca'], data['orientations']
+
+"""
+Trains the Hierarchical SVM model using Histogram of Oriented Gradients
+Args:
+    X_train (np.ndarray): The flattened, normalized input image, shape of (n_samples, n_features))
+    y_train (np.ndarray): The target labels for each sample
+    n_components (int, optional): Number for PCA, defaults to 50
+    c (float, optional): C parameter for SVM
+    Orientations (int, optional): The orientations number used, defaults to 10
+Returns:
+    LinearSVC, MultiOutputClassifier, PCA, int: The trained domain SVM, label SVM, PCA, and the number of orientations used
+"""
+def TrainHierarchicalSVMHOG(X_train, y_train, n_components=50, c=1, Orientations=10):
+    side = int(np.sqrt(X_train.shape[1]))
+    X_train_HOG = joblib.Parallel(n_jobs=-1)(
+        joblib.delayed(hog)(
+            img.reshape(side, side), 
+            orientations=Orientations, 
+            pixels_per_cell=(8, 8), 
+            cells_per_block=(2, 2)
+        ) for img in X_train
+    )
+    X_train_HOG = np.array(X_train_HOG)
+    
+    domain_model, label_model, pca = TrainHierarchicalSVM(X_train_HOG, y_train, n_components, c)
+    return domain_model, label_model, pca, Orientations
+
+"""
+Generates predictions from the Hierarchical SVM models using Histogram of Oriented Gradients
+Args:
+    domain_model (LinearSVC): The trained domain SVM model
+    label_model (MultiOutputClassifier): The trained label SVM model
+    pca (PCA): The fitted PCA transformer used during training
+    X_test (np.ndarray): Flattened image of shape (n_samples, n_features)
+    Orientations (int): The orientations number used
+Returns:
+    np.ndarray: Array of predicted labels for each input
+"""
+def PredictHierarchicalSVMHOG(domain_model, label_model, pca, X_test, Orientations):
+    side = int(np.sqrt(X_test.shape[1]))
+    X_test_HOG = joblib.Parallel(n_jobs=-1)(
+        joblib.delayed(hog)(
+            img.reshape(side, side), 
+            orientations=Orientations, 
+            pixels_per_cell=(8, 8), 
+            cells_per_block=(2, 2)
+        ) for img in X_test
+    )
+    X_test_HOG = np.array(X_test_HOG)
+    return PredictHierarchicalSVM(domain_model, label_model, pca, X_test_HOG)
+
 
 """
 Gets the perfomance metrics between y and yhat for one of the labels.
