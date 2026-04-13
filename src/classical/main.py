@@ -20,10 +20,17 @@ from pathlib import Path
 # Allow `python main.py` here or `python src/classical/main.py` from repo root
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Load mappings once at module load (adjust paths as needed)
+import os
+
 from classifier import SymbolClassifier
+from label_maps import load_emnist_mapping, load_hasy_mapping, map_symbol_value
 from preprocessing import crop_character, load_image
 from segmentation import segment
 from structure import AST
+
+EMNIST_MAP = load_emnist_mapping(os.path.join(os.path.dirname(__file__), "emnist-byclass-mapping.txt"))
+HASY_MAP = load_hasy_mapping(os.path.join(os.path.dirname(__file__), "hasy-symbols.csv"))
 
 
 def main(image_path: str = "example.png", min_area: int = 0) -> str:
@@ -50,8 +57,24 @@ def main(image_path: str = "example.png", min_area: int = 0) -> str:
     # Crop characters from the original image
     cropped_chars = [crop_character(image, box) for box in boxes]
 
+    # # Save all cropped characters to a folder for debugging
+    # save_dir = "cropped_chars"
+    # os.makedirs(save_dir, exist_ok=True)
+    # for idx, (crop, box) in enumerate(zip(cropped_chars, boxes)):
+    #     arr = np.array(crop)
+    #     arr = (arr * 255).astype(np.uint8)
+    #     img = Image.fromarray(arr)
+    #     img.save(os.path.join(save_dir, f"{idx}.png"))
+    #     print(f"Crop {idx}: dtype={arr.dtype}, min={arr.min()}, max={arr.max()}")
+    # print(f"Saved {len(cropped_chars)} cropped chars to {save_dir}/")
+
     # Extract features and predict symbols for each cropped character
     symbols = classifier.predict_batch(cropped_chars, boxes)
+
+    # Map symbol values to human-readable output
+    for symbol in symbols:
+        print(f"Predicted: {symbol.value} (type: {symbol.type}), box: {symbol.box}")
+        symbol.value = map_symbol_value(symbol, EMNIST_MAP, HASY_MAP)
 
     # Build AST and render LaTeX/Markdown using the predicted symbols and their bounding boxes
     ast = AST(symbols)
