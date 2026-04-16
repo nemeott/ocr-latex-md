@@ -1,3 +1,4 @@
+# LLM help with reformatting (I use camel casing usually, but it looks better with snake casing)
 import os
 import io
 import re
@@ -15,6 +16,7 @@ os.environ["PYTORCH_HIP_ALLOC_CONF"] = "garbage_collection_threshold:0.8"
 torch.backends.cudnn.enabled = False 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Basically the same I've already been using
 class SubwordVocab:
     def __init__(self, special_tokens):
         self.char2idx = {"<PAD>": 0, "<UNK>": 1, "<SOS>": 2, "<EOS>": 3}
@@ -49,6 +51,7 @@ class SubwordVocab:
 
     def __len__(self): return len(self.char2idx)
 
+# Basically the same as I've been using
 class UnifiedOCRDataset(Dataset):
     def __init__(self, hf_dataset, vocab, transform=None):
         self.data, self.vocab, self.transform = hf_dataset, vocab, transform
@@ -74,6 +77,7 @@ def collate_fn(batch):
     padded_tokens = torch.nn.utils.rnn.pad_sequence(tokens, batch_first=True, padding_value=0)
     return images, padded_tokens
 
+# LLM: "How do I do flatten the positional encoding for the transformer?"
 class PositionalEncoding2D(nn.Module):
     def __init__(self, d_model, max_h=32, max_w=128):
         super().__init__()
@@ -106,6 +110,7 @@ class PositionalEncoding2D(nn.Module):
         x = x + self.pe[:, :H, :W, :]
         return x.reshape(B, H * W, C) # Flatten spatial dims for Transformer
 
+# From LLM: "How do I get the positional encoding after it's flattened?"
 class PositionalEncoding1D(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super().__init__()
@@ -132,7 +137,7 @@ class CNNTransformerOCR(nn.Module):
         )
         self.pos_encoder_2d = PositionalEncoding2D(d_model)
         
-        # Transformer Decoder
+        # Transformer Decoder; structure with help from LLM
         self.embedding = nn.Embedding(vocab_size, d_model)
         self.pos_encoder_1d = PositionalEncoding1D(d_model)
         decoder_layer = nn.TransformerDecoderLayer(d_model=d_model, nhead=nhead, batch_first=True, dropout=0.1)
@@ -140,6 +145,7 @@ class CNNTransformerOCR(nn.Module):
         
         self.fc_out = nn.Linear(d_model, vocab_size)
 
+    # From LLM: "Does PyTorch have a way to help with masking so the transformer can't cheat by looking at future values?"
     def generate_square_subsequent_mask(self, sz):
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
@@ -148,7 +154,8 @@ class CNNTransformerOCR(nn.Module):
     def forward(self, images, tgt):
         features = self.cnn(images) 
         memory = self.pos_encoder_2d(features) 
-        
+
+        # With help from LLM
         tgt_emb = self.pos_encoder_1d(self.embedding(tgt))
         tgt_mask = self.generate_square_subsequent_mask(tgt.size(1))
         tgt_key_padding_mask = (tgt == 0) # <PAD> is 0
@@ -161,6 +168,7 @@ class CNNTransformerOCR(nn.Module):
         )
         return self.fc_out(output)
 
+# This is based on the same loading used before
 def load_pretrained_cnn(model, checkpoint_path):
     print(f"Loading pre-trained CNN weights from {checkpoint_path}...")
     if not os.path.exists(checkpoint_path):
@@ -215,6 +223,7 @@ def train_transformer(myToken=""):
     optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=2e-4, steps_per_epoch=len(loader), epochs=50)
 
+    # Got help from LLM to update the training loop to the transformer architecture
     print("Starting Hybrid Transformer training for 5 epochs...")
     for epoch in range(5):
         model.train()
