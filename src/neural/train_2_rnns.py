@@ -1,3 +1,4 @@
+# LLM help with reformatting (I use camel casing usually, but it looks better with snake casing)
 import os
 import io
 import re
@@ -15,6 +16,7 @@ os.environ["PYTORCH_HIP_ALLOC_CONF"] = "garbage_collection_threshold:0.8"
 torch.backends.cudnn.enabled = False 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Same stuff as for 1 RNN decoder
 class SubwordVocab:
     def __init__(self, special_tokens):
         self.char2idx = {"[blank]": 0, "<UNK>": 1, "<SOS>": 2, "<EOS>": 3}
@@ -82,6 +84,7 @@ class C2RNN(nn.Module):
         self.rnn_latex = nn.LSTM(512, hidden_dim, bidirectional=True, num_layers=2, batch_first=True, dropout=0.3)
         self.fc_latex = nn.Linear(hidden_dim * 2, vocab_size)
 
+    # I used an LLM to help me update the forward fcn
     def forward(self, x, domain="text"):
         features = self.cnn(x).squeeze(2).permute(0, 2, 1) 
         
@@ -94,6 +97,7 @@ class C2RNN(nn.Module):
         else:
             raise ValueError(f"Unknown domain: {domain}")
 
+# Same stuff as before
 class UnifiedOCRDataset(Dataset):
     def __init__(self, hf_dataset, vocab, transform=None):
         self.data, self.vocab, self.transform = hf_dataset, vocab, transform
@@ -131,7 +135,7 @@ if __name__ == "__main__":
     
     model = C2RNN(len(vocab)).to(device)
 
-    # --- WEIGHT TRANSFER & DUPLICATION LOGIC ---
+    # Loading and transferring weights (1, 2, & 3) written with help of LLM
     if os.path.exists(CHECKPOINT_TO_CONVERT):
         print(f"Executing Specialist Weight Transfer from {CHECKPOINT_TO_CONVERT}...")
         old_sd = torch.load(CHECKPOINT_TO_CONVERT, map_location=device)
@@ -179,11 +183,12 @@ if __name__ == "__main__":
     optimizer = optim.Adam(model.parameters(), lr=5e-5) 
     criterion = nn.CTCLoss(blank=0, reduction='mean', zero_infinity=True)
 
+    # Pretty similar now, just that we have to make sure we train both decoders individually on each dataset; mostly copied & pasted or adapted from older code, but some updates from LLM help.
     print(f"Starting C2RNN fine-tuning on {device}...")
     for epoch in range(10):
         for step in range(steps_per_epoch):
             
-            # Only train text every 20 steps to match the dataset sizes better
+            # Only train one every 20 steps to match the dataset sizes better
             if step % 20 == 0: 
                 imgs_t, tgs_t, t_lens_t = next(iter_text)
                 imgs_t, tgs_t = imgs_t.to(device), tgs_t.to(device)
@@ -195,7 +200,7 @@ if __name__ == "__main__":
                 loss_t.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
-            # LaTeX
+
             imgs_l, tgs_l, t_lens_l = next(iter_latex)
             imgs_l, tgs_l = imgs_l.to(device), tgs_l.to(device)
             
@@ -206,7 +211,8 @@ if __name__ == "__main__":
             loss_l.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
-            
+
+            # Particularly this was written with LLM help to make it look fancy
             if step % 100 == 0:
                 with torch.no_grad():
                     pred_t = vocab.decode(outs_t[:, 0, :].argmax(1))
