@@ -1,3 +1,4 @@
+# LLM help with reformatting (I use camel casing usually, but it looks better with snake casing)
 import os
 import io
 import re
@@ -17,6 +18,7 @@ os.environ["PYTORCH_HIP_ALLOC_CONF"] = "garbage_collection_threshold:0.8"
 torch.backends.cudnn.enabled = False 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Same vocab
 class SubwordVocab:
     def __init__(self, special_tokens):
         self.char2idx = {"[blank]": 0, "<UNK>": 1, "<SOS>": 2, "<EOS>": 3}
@@ -58,6 +60,7 @@ class SubwordVocab:
     def __len__(self):
         return len(self.char2idx)
 
+# Needs to be the same
 class C2RNN(nn.Module):
     def __init__(self, vocab_size, hidden_dim=256):
         super().__init__()
@@ -85,11 +88,13 @@ class C2RNN(nn.Module):
             recurrent, _ = self.rnn_latex(features)
             return self.fc_latex(recurrent).permute(1, 0, 2).log_softmax(2)
 
+# Was having issues because of the weird formatting that IAM-line has
 def clean_text(text):
     text = text.lower().strip()
     text = re.sub(r'\s+', ' ', text)
     return text
 
+# With help from LLM for beam search decoding
 def ctc_beam_search(probs_seq, beam_width=3):
     """
     Standard CTC Prefix Beam Search in linear probability space.
@@ -136,6 +141,7 @@ def ctc_beam_search(probs_seq, beam_width=3):
     best_prefix = max(beam.items(), key=lambda x: x[1][0] + x[1][1])[0]
     return best_prefix
 
+# Basically all the same stuff
 class UnifiedOCRDataset(Dataset):
     def __init__(self, hf_dataset, vocab, transform=None):
         self.data, self.vocab, self.transform = hf_dataset, vocab, transform
@@ -155,6 +161,7 @@ def evaluate_domain_beam(model, dataloader, vocab, domain_name, beam_width=3):
     total_samples = 0
     all_preds, all_targets = [], []
 
+    # LLM: "Given my model architecture and the beam search code, help me write a beam search tester on the datasets."
     print(f"\n--- Testing {domain_name.upper()} (Beam Search w={beam_width}) ---")
     with torch.no_grad():
         for images, targets in tqdm(dataloader):
@@ -188,6 +195,7 @@ def evaluate_domain_beam(model, dataloader, vocab, domain_name, beam_width=3):
     print(f"\n{domain_name.upper()} FINAL REPORT (BEAM):")
     print(f"Exact Match: {em_rate:.2f}% | CER: {cer:.2f}% | WER: {wer:.2f}%")
 
+# Same main function stuff by this point
 if __name__ == "__main__":
     CHECKPOINT = "ocr_c2rnn_epoch_9.pth"
     ST = ["\\frac{", "^{", "_{", "}^{", "\\sqrt{", "\\begin{matrix}", "\\end{matrix}", 
@@ -208,6 +216,7 @@ if __name__ == "__main__":
     latex_test = load_dataset("LiamYo/MathWritingHandwritten", split="validation")
     text_test = load_dataset("Teklia/IAM-line", split="test")
 
+    # Can increase batch size because less expensive to compute vs training
     l_eval = DataLoader(UnifiedOCRDataset(text_test, vocab, transform), batch_size=64, shuffle=False, num_workers=4)
     m_eval = DataLoader(UnifiedOCRDataset(latex_test, vocab, transform), batch_size=64, shuffle=False, num_workers=4)
 
