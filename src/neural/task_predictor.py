@@ -1,3 +1,4 @@
+# LLM help with reformatting (I use camel casing usually, but it looks better with snake casing)
 import os
 import torch
 import torch.nn as nn
@@ -12,6 +13,7 @@ os.environ["PYTORCH_HIP_ALLOC_CONF"] = "garbage_collection_threshold:0.8"
 torch.backends.cudnn.enabled = False 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Import the CNN from the other models to make training go faster
 class DomainRouter(nn.Module):
     def __init__(self, backbone):
         super().__init__()
@@ -28,6 +30,7 @@ class DomainRouter(nn.Module):
         pooled = torch.mean(features, dim=1) 
         return self.classifier(pooled)
 
+# Validation function written with help of LLM
 def validate_router(model, text_loader, latex_loader, steps=10):
     model.eval()
     correct = 0
@@ -80,7 +83,7 @@ def train_router():
         transforms.Normalize((0.5,), (0.5,))
     ])
     
-    # Train Loaders
+    # Train Loaders. Probably could use a larger batch_size now that the model is not serial, but whatever.
     loader_text = DataLoader(UnifiedOCRDataset(text_ds, vocab, transform), batch_size=32, shuffle=True, collate_fn=collate_fn)
     loader_latex = DataLoader(UnifiedOCRDataset(latex_ds, vocab, transform), batch_size=32, shuffle=True, collate_fn=collate_fn)
     iter_text = iter(cycle_loader(loader_text))
@@ -90,9 +93,10 @@ def train_router():
     val_loader_text = iter(cycle_loader(DataLoader(UnifiedOCRDataset(text_val_ds, vocab, transform), batch_size=32, collate_fn=collate_fn)))
     val_loader_latex = iter(cycle_loader(DataLoader(UnifiedOCRDataset(latex_val_ds, vocab, transform), batch_size=32, collate_fn=collate_fn)))
 
-    print("Training Router...")
+    # Written with help of LLM
+    print("Training Router")
     router.train()
-    for step in range(101):
+    for step in range(101): # Ended up going back to 100 because overfitting occurred after that
         imgs_t, _, _ = next(iter_text)
         imgs_l, _, _ = next(iter_latex)
         
