@@ -1,3 +1,4 @@
+# LLM help with reformatting (I use camel casing usually, but it looks better with snake casing)
 import os
 import io
 import re
@@ -14,10 +15,11 @@ from jiwer import cer, wer
 import collections
 
 os.environ["HIP_VISIBLE_DEVICES"] = "1" 
-os.environ["PYTORCH_HIP_ALLOC_CONF"] = "garbage_collection_threshold:0.8"
+os.environ["PYTORCH_HIP_ALLOC_CONF"] = "garbage_collection_threshold:0.8" # This I used an LLM for; was getting wonky errors because ROCm doesn't like me.
 torch.backends.cudnn.enabled = False 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# With help from LLM: "Help me build a joint vocabulary that first adds in the original char vocab and second the new ones helpful for LaTeX.
 class SubwordVocab:
     def __init__(self, special_tokens):
         self.char2idx = {"[blank]": 0, "<UNK>": 1, "<SOS>": 2, "<EOS>": 3}
@@ -64,6 +66,7 @@ class SubwordVocab:
 
     def __len__(self): return len(self.char2idx)
 
+# This was from an LLM. "Help me create a beam search decoder that also does pruning. This is the relevant code for my CRNN model: [...]."
 class PrunedBeamSearchDecoder:
     def __init__(self, vocab, beam_width=2, top_k=3):
         self.vocab = vocab
@@ -95,6 +98,7 @@ class PrunedBeamSearchDecoder:
         best_prefix = max(beams.keys(), key=lambda x: np.logaddexp(beams[x][0], beams[x][1]))
         return "".join([self.vocab.idx2char[idx] for idx in best_prefix if idx > 3])
 
+# This is the same as what was used for building the whole dataset in a prior program.
 class UnifiedOCRDataset(Dataset):
     def __init__(self, hf_dataset, vocab, transform=None):
         self.data, self.vocab, self.transform = hf_dataset, vocab, transform
@@ -128,6 +132,7 @@ class CRNN(nn.Module):
         )
         self.rnn = nn.LSTM(512, hidden_dim, bidirectional=True, num_layers=2, batch_first=True, dropout=0.3)
         self.fc = nn.Linear(hidden_dim * 2, vocab_size)
+    # "How should I write the forward method given my model structure? [...]"
     def forward(self, x):
         features = self.cnn(x).squeeze(2).permute(0, 2, 1) 
         recurrent, _ = self.rnn(features)
@@ -142,7 +147,7 @@ def run_subword_evaluation(model_path, special_tokens, myToken=""):
     
     vocab = SubwordVocab(special_tokens)
     vocab.build_vocab([latex_train, text_train])
-    
+
     transform = transforms.Compose([
         transforms.Resize((128, 1024)), transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))
     ])
@@ -156,6 +161,7 @@ def run_subword_evaluation(model_path, special_tokens, myToken=""):
     decoder = PrunedBeamSearchDecoder(vocab, beam_width=2, top_k=3)
     all_gt, all_pred = [], []
 
+    # This part was with help from an LLM, specifically "I know how to get a single output. How do I do it over the whole datasets? Code for a single output: [...]."
     print(f"Starting Subword Beam Search Inference on {device}...")
     with torch.no_grad():
         for images, targets, target_lengths in tqdm(loader):
@@ -176,6 +182,7 @@ def run_subword_evaluation(model_path, special_tokens, myToken=""):
     avg_cer, avg_wer = cer(all_gt, all_pred), wer(all_gt, all_pred)
     exact_acc = accuracy_score(all_gt, all_pred)
 
+    # Asked LLM to make things look fancier
     print("\n" + "="*60)
     print(f"SUBWORD BEAM SEARCH REPORT: {os.path.basename(model_path)}")
     print("="*60)
