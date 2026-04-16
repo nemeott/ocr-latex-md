@@ -1,3 +1,4 @@
+# LLM help with reformatting (I use camel casing usually, but it looks better with snake casing)
 import os
 import re
 import cv2
@@ -14,6 +15,7 @@ os.environ["PYTORCH_HIP_ALLOC_CONF"] = "garbage_collection_threshold:0.8"
 torch.backends.cudnn.enabled = False 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Same stuff we've been using the whole time
 class SubwordVocab:
     def __init__(self, special_tokens):
         self.char2idx = {"[blank]": 0, "<UNK>": 1, "<SOS>": 2, "<EOS>": 3}
@@ -49,6 +51,7 @@ class SubwordVocab:
         return "".join(res)
     def __len__(self): return len(self.char2idx)
 
+# Same CNN - 2RNN architecture we have. Same as other architectures faced when importing: it must match exactly.
 class C2RNN(nn.Module):
     def __init__(self, vocab_size, hidden_dim=256):
         super().__init__()
@@ -74,6 +77,7 @@ class C2RNN(nn.Module):
         recurrent, _ = rnn(features)
         return fc(recurrent).permute(1, 0, 2).log_softmax(2)
 
+# The CNN router we built; much match the one we made
 class DomainRouter(nn.Module):
     def __init__(self, backbone):
         super().__init__()
@@ -83,10 +87,12 @@ class DomainRouter(nn.Module):
         features = self.backbone(x).squeeze(2).permute(0, 2, 1)
         return self.classifier(torch.mean(features, dim=1))
 
+# This part heavily used help from an LLM; see additional comments for relevant prompts
 def segment_natural_ratio(image_path):
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    if img is None: return []
-    
+    if img is None: return [] # Handle the error that accidentally crashed my GPU driver :/
+
+    # Prompt: "We are having a lot of problems with noise. Can we some sort of averaging/blur to try and get better segmentation of the line?" from here to "HERE"
     blurred = cv2.GaussianBlur(img, (3, 3), 0)
     _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     clean_bw = cv2.bitwise_not(thresh)
@@ -98,6 +104,7 @@ def segment_natural_ratio(image_path):
     is_text = projection > (np.max(projection) * 0.1) 
     starts, ends = np.where(np.diff(np.pad(is_text, (1, 1), mode='constant').astype(int)) == 1)[0], \
                    np.where(np.diff(np.pad(is_text, (1, 1), mode='constant').astype(int)) == -1)[0]
+    # HERE
 
     line_images = []
     for s, e in zip(starts, ends):
@@ -108,22 +115,19 @@ def segment_natural_ratio(image_path):
         cols = np.sum(line_mask, axis=0)
         if np.max(cols) > 0:
             x_s, x_e = np.where(cols > 0)[0][0], np.where(cols > 0)[0][-1]
-            # Extra horizontal padding for context
+            # Prompt: "Can we add padding so that when we get the line it's actually more likely to have the full text?"
             x_s, x_e = max(0, x_s - 30), min(img.shape[1], x_e + 30)
-            
             line_crop = clean_bw[s:e, x_s:x_e]
             line_pil = Image.fromarray(line_crop).convert("L")
             w, h = line_pil.size
 
-            # PRESERVE ASPECT RATIO: Target height is 100px (centered in 128px)
+            # Prompt: "Can we try to preserve the aspect ratio to something fixed? I think all the different aspect ratios cause problems when passed through the CNN encoder if they're different sizes."
             target_h = 100 
             ratio = target_h / h
             new_w = min(1024, int(w * ratio))
+            line_pil = line_pil.resize((new_w, target_h), Image.Resampling.LANCZOS) # RESIZE WITH MAINTAINED RATIO BY USER REQUEST
             
-            # Resize keeping the ratio
-            line_pil = line_pil.resize((new_w, target_h), Image.Resampling.LANCZOS)
-            
-            # Paste onto standard 1024x128 canvas
+            # Prompt: "It might just be easier to scale down to the right size (1024 by 128) now instead of making the model handle it. Can we do that, too?"
             canvas = Image.new('L', (1024, 128), color=255)
             y_offset = (128 - target_h) // 2
             canvas.paste(line_pil, (0, y_offset))
@@ -131,16 +135,18 @@ def segment_natural_ratio(image_path):
             
     return line_images
 
+# This is largely the same as many of the test scripts, just with the addition of breaking the image and saving it
 def run_final_presentation_pipeline(image_path):
     ST = ["\\frac{", "^{", "_{", "}^{", "\\sqrt{", "\\begin{matrix}", "\\end{matrix}", 
           "\\alpha", "\\beta", "\\gamma", "\\theta", "\\sum_{", "\\int_{", "\\rightarrow"]
     
-    print("--- Loading Data & Vocab ---")
+    print("Loading Data & Vocab")
     latex_ds = load_dataset("LiamYo/MathWritingHandwritten", split="train")
     text_ds = load_dataset("Teklia/IAM-line", split="train")
-    vocab = SubwordVocab(ST); vocab.build_vocab([latex_ds, text_ds])
+    vocab = SubwordVocab(ST)
+    vocab.build_vocab([latex_ds, text_ds])
     
-    print("--- Loading Models ---")
+    print("Loading Models")
     model = C2RNN(len(vocab)).to(device)
     model.load_state_dict(torch.load("ocr_c2rnn_epoch_9.pth", map_location=device))
     model.eval()
@@ -148,13 +154,13 @@ def run_final_presentation_pipeline(image_path):
     router.load_state_dict(torch.load("router_final.pth", map_location=device))
     router.eval()
 
-    transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+    transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]) # This was because of an error I was getting. Got help from LLM.
     lines = segment_natural_ratio(image_path)
     
     # Result Composite
     final_canvas = Image.new('RGB', (1024, len(lines) * 200), color=(255, 255, 255))
     draw = ImageDraw.Draw(final_canvas)
-    try: font = ImageFont.truetype("arial.ttf", 26)
+    try: font = ImageFont.truetype("arial.ttf", 26) # I was trying to be fancy with font, but my desktop didn't have it loaded (but my laptop does), and it got really angry. I switched to arial and then also put it in a try-except block.
     except: font = ImageFont.load_default()
 
     print(f"--- Processing {len(lines)} lines ---")
@@ -169,7 +175,7 @@ def run_final_presentation_pipeline(image_path):
             
             final_canvas.paste(img.convert("RGB"), (0, i * 200))
             color = (0, 0, 180) if domain == "text" else (180, 0, 0)
-            draw.text((30, i * 200 + 140), f"[{domain.upper()}] PRED: {pred}", fill=color, font=font)
+            draw.text((30, i * 200 + 140), f"[{domain.upper()}] PRED: {pred}", fill=color, font=font) # This part I got help with from the LLM so that it looked fancy
 
     final_canvas.save("FINAL_PRESENTATION_DEMO.png")
     print("DONE. Open 'FINAL_PRESENTATION_DEMO.png'.")
