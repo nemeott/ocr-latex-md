@@ -1,3 +1,4 @@
+# LLM help with reformatting (I use camel casing usually, but it looks better with snake casing)
 import os
 import re
 import torch
@@ -12,6 +13,7 @@ os.environ["PYTORCH_HIP_ALLOC_CONF"] = "garbage_collection_threshold:0.8"
 torch.backends.cudnn.enabled = False 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Same as before
 class SubwordVocab:
     def __init__(self, special_tokens):
         self.char2idx = {"[blank]": 0, "<UNK>": 1, "<SOS>": 2, "<EOS>": 3}
@@ -48,6 +50,7 @@ class SubwordVocab:
 
     def __len__(self): return len(self.char2idx)
 
+# Must match
 class C2RNN(nn.Module):
     def __init__(self, vocab_size, hidden_dim=256):
         super().__init__()
@@ -73,6 +76,7 @@ class C2RNN(nn.Module):
         recurrent, _ = rnn(features)
         return fc(recurrent).permute(1, 0, 2).log_softmax(2)
 
+# Similar to predictor.py
 def save_result_image(original_img, truth, pred, filename):
     # Resize original for display
     w, h = original_img.size
@@ -95,24 +99,26 @@ def save_result_image(original_img, truth, pred, filename):
     draw.text((20, display_h + 80), f"Pred:  {pred}", fill=(0, 100, 0), font=font)
     
     canvas.save(filename)
-    print(f"✅ Saved result to {filename}")
+    print(f"Saved result to {filename}")
 
+# Very similar to predictor.py
 def run_dataset_validation_and_save():
     ST = ["\\frac{", "^{", "_{", "}^{", "\\sqrt{", "\\begin{matrix}", "\\end{matrix}", 
           "\\alpha", "\\beta", "\\gamma", "\\theta", "\\sum_{", "\\int_{", "\\rightarrow"]
     
-    print("--- Loading Datasets ---")
+    print("Loading Datasets")
     latex_ds = load_dataset("LiamYo/MathWritingHandwritten", split="train")
     text_ds = load_dataset("Teklia/IAM-line", split="train")
     
     vocab = SubwordVocab(ST)
     vocab.build_vocab([latex_ds, text_ds])
     
-    print("--- Loading Model ---")
+    print("Loading Model")
     model = C2RNN(len(vocab)).to(device)
     model.load_state_dict(torch.load("ocr_c2rnn_epoch_9.pth", map_location=device))
     model.eval()
 
+    # Needed to make sure everything gets resized and normalized correctly
     transform = transforms.Compose([
         transforms.Resize((128, 1024)),
         transforms.ToTensor(),
@@ -121,7 +127,7 @@ def run_dataset_validation_and_save():
 
     print("\n--- RUNNING VALIDATION ---")
 
-    # TEST 1: IAM TEXT
+    # LLM use: "Help me find a random text sample to include in the presentation instead of just my crap handwriting."
     sample_t = text_ds[42]
     img_t_raw = sample_t['image'].convert("L")
     inp_t = transform(img_t_raw).unsqueeze(0).to(device)
@@ -130,17 +136,15 @@ def run_dataset_validation_and_save():
         pred_t = vocab.decode(out_t.argmax(2).squeeze())
         save_result_image(img_t_raw, sample_t['text'], pred_t, "IAM_Result.png")
 
-    # TEST 2: MATHWRITING LATEX
+    # LLM use: "Help me find a random LaTeX sample to include in the presentation too."
     sample_l = latex_ds[100]
     label = sample_l['txt']
     img_obj = sample_l['png']
-            
     if img_obj:
         if not isinstance(img_obj, Image.Image):
             img_l_raw = Image.open(io.BytesIO(img_obj)).convert("L")
         else:
             img_l_raw = img_obj.convert("L")
-            
         inp_l = transform(img_l_raw).unsqueeze(0).to(device)
         with torch.no_grad():
             out_l = model(inp_l, domain="latex")
