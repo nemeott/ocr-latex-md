@@ -1,3 +1,4 @@
+# LLM help with reformatting (I use camel casing usually, but it looks better with snake casing)
 import os
 import io
 import re
@@ -15,6 +16,7 @@ os.environ["PYTORCH_HIP_ALLOC_CONF"] = "garbage_collection_threshold:0.8"
 torch.backends.cudnn.enabled = False 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Need to update this
 class SubwordVocab:
     def __init__(self, special_tokens):
         self.char2idx = {"[blank]": 0, "<UNK>": 1, "<SOS>": 2, "<EOS>": 3}
@@ -24,8 +26,9 @@ class SubwordVocab:
         self.pattern = re.compile("|".join([re.escape(t) for t in self.special_tokens_sorted]) + "|.")
         self.raw_special_tokens = special_tokens
 
+    # Merging the new labels into the end was with help of an LLM
     def build_vocab(self, datasets):
-        # First, add the original 1-char tokens (0-94) to match the old model
+        # First, add the original 1-char tokens (0-94) to match the old model; mostly same was before
         unique_chars = set()
         for ds in datasets:
             label_key = next(c for c in ['txt', 'latex', 'text', 'formula'] if c in ds.column_names)
@@ -51,6 +54,7 @@ class SubwordVocab:
         tokens = self.pattern.findall(text)
         return [self.char2idx.get(t, 1) for t in tokens]
 
+    # This I needed help from an LLM to update
     def decode(self, indices):
         res = []
         for i in range(len(indices)):
@@ -61,6 +65,7 @@ class SubwordVocab:
 
     def __len__(self): return len(self.char2idx)
 
+# Same class
 class CRNN(nn.Module):
     def __init__(self, vocab_size, hidden_dim=256):
         super().__init__()
@@ -82,6 +87,7 @@ class CRNN(nn.Module):
         recurrent, _ = self.rnn(features)
         return self.fc(recurrent).permute(1, 0, 2).log_softmax(2)
 
+# Same
 class UnifiedOCRDataset(Dataset):
     def __init__(self, hf_dataset, vocab, transform=None):
         self.data, self.vocab, self.transform = hf_dataset, vocab, transform
@@ -116,6 +122,8 @@ if __name__ == "__main__":
     if os.path.exists(CHECKPOINT_TO_CONVERT):
         print(f"Executing Partial Weight Transfer from {CHECKPOINT_TO_CONVERT}...")
         old_sd = torch.load(CHECKPOINT_TO_CONVERT, map_location=device)
+
+        # The next part was with help of an LLM. Prompt: "I think we would get much better results if we expaned the vocab to include things like \frac{ or ^{. Can we load in the most recently saved model and just do random initialization for the new weights and continue training?"
         
         # Load Backbone (CNN + RNN)
         backbone_sd = {k: v for k, v in old_sd.items() if "fc" not in k}
@@ -128,7 +136,8 @@ if __name__ == "__main__":
             model.fc.weight[:num_transfer].copy_(old_w[:num_transfer])
             model.fc.bias[:num_transfer].copy_(old_b[:num_transfer])
         print(f"Successfully transferred {num_transfer} character weights.")
-    
+
+    # Now back to basically normal training from before
     transform = transforms.Compose([
         transforms.Resize((128, 1024)), transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))
     ])
@@ -148,9 +157,10 @@ if __name__ == "__main__":
             i_lens = torch.full((imgs.size(0),), outs.size(0), dtype=torch.long)
             loss = criterion(outs, tgs, i_lens, t_lens)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # This was added, written by an LLM because of gradient size problems
             optimizer.step()
-            
+
+            # Updated output
             if i % 100 == 0:
                 with torch.no_grad():
                     pred = vocab.decode(outs[:, 0, :].argmax(1))
