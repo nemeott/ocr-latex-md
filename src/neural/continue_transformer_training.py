@@ -1,3 +1,4 @@
+# LLM help with reformatting (I use camel casing usually, but it looks better with snake casing). Most of this code is the same as the original transformer training script.
 import os
 import io
 import re
@@ -119,6 +120,7 @@ class PositionalEncoding1D(nn.Module):
     def forward(self, x):
         return x + self.pe[:, :x.size(1)]
 
+# Basically the same as before
 class CNNTransformerOCR(nn.Module):
     def __init__(self, vocab_size, d_model=256, nhead=8, num_decoder_layers=3):
         super().__init__()
@@ -161,9 +163,6 @@ class CNNTransformerOCR(nn.Module):
         )
         return self.fc_out(output)
 
-# ==========================================
-# 5. TRAINING LOOP
-# ==========================================
 def train_transformer(myToken=""):
     ST = ["\\frac{", "^{", "_{", "}^{", "\\sqrt{", "\\begin{matrix}", "\\end{matrix}", 
           "\\alpha", "\\beta", "\\gamma", "\\theta", "\\sum_{", "\\int_{", "\\rightarrow"]
@@ -185,7 +184,8 @@ def train_transformer(myToken=""):
     
     # Initialize Model
     model = CNNTransformerOCR(len(vocab)).to(device)
-    
+
+    # With help from LLM: FROM HERE DOWN TO "HERE"
     # Load Epoch 4 Weights directly
     checkpoint_path = "ocr_hybrid_transformer_epoch_4.pth"
     print(f"\nLoading saved weights from {checkpoint_path}...")
@@ -205,14 +205,16 @@ def train_transformer(myToken=""):
     START_EPOCH = 5
     
     # Re-initialize Scheduler for the full 50 epochs
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=2e-4, steps_per_epoch=len(loader), epochs=TOTAL_EPOCHS)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=2e-4, steps_per_epoch=len(loader), epochs=TOTAL_EPOCHS) 
     
     # Fast-forward the scheduler to the end of Epoch 4
     # OneCycleLR calculates its internal position based on the number of `.step()` calls.
     print(f"Fast-forwarding the OneCycleLR scheduler by {START_EPOCH * len(loader)} steps to match the current epoch...")
     for _ in range(START_EPOCH * len(loader)):
         scheduler.step()
+    # HERE
 
+    # This is largely the same as the previous training cycle
     print(f"Resuming Hybrid Transformer training from Epoch {START_EPOCH} to {TOTAL_EPOCHS}...")
     for epoch in range(START_EPOCH, TOTAL_EPOCHS):
         model.train()
@@ -242,7 +244,7 @@ def train_transformer(myToken=""):
         # Save standard weights for the evaluation script
         torch.save(model.state_dict(), f"ocr_hybrid_transformer_epoch_{epoch}.pth")
         
-        # Save full checkpoint with optimizer and scheduler states for future resumption
+        # Save full checkpoint with optimizer and scheduler states for future resumption; using LLM help of "How do I save the full checkpoint in case I lose power again?"
         full_checkpoint = {
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
