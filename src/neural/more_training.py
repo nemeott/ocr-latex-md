@@ -1,3 +1,4 @@
+# LLM help with reformatting (I use camel casing usually, but it looks better with snake casing)
 import os
 import io
 import torch
@@ -9,13 +10,12 @@ from datasets import load_dataset
 from PIL import Image
 import numpy as np
 
-# 1. ENVIRONMENT & ROCm SETUP
-os.environ["HIP_VISIBLE_DEVICES"] = "1" 
+os.environ["HIP_VISIBLE_DEVICES"] = "1" # My iGPU gets listed first for some reason
 os.environ["PYTORCH_HIP_ALLOC_CONF"] = "garbage_collection_threshold:0.8"
 torch.backends.cudnn.enabled = False 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# 2. VOCABULARY (CTC-Ready)
+# With help from LLM to build vocabulary using the datsets
 class CharVocab:
     def __init__(self):
         self.char2idx = {"[blank]": 0, "<UNK>": 1, "<SOS>": 2, "<EOS>": 3}
@@ -50,7 +50,7 @@ class CharVocab:
     def __len__(self):
         return len(self.char2idx)
 
-# 3. DATASET & COLLATOR
+# Unified dataset class with help from LLM
 class UnifiedOCRDataset(Dataset):
     def __init__(self, hf_dataset, vocab, transform=None):
         self.data, self.vocab, self.transform = hf_dataset, vocab, transform
@@ -71,10 +71,10 @@ def collate_fn(batch):
     images, tokens, lengths = zip(*batch)
     return torch.stack(images), torch.cat(tokens), torch.stack(lengths)
 
-# 4. THE 7-LAYER CRNN ARCHITECTURE
 class CRNN(nn.Module):
     def __init__(self, vocab_size, hidden_dim=256):
         super().__init__()
+        # This is a fixed CNN structure we use in all models.
         self.cnn = nn.Sequential(
             nn.Conv2d(1, 64, 3, 1, 1), nn.ReLU(), nn.MaxPool2d(2, 2),
             nn.Conv2d(64, 128, 3, 1, 1), nn.ReLU(), nn.MaxPool2d(2, 2),
@@ -117,7 +117,7 @@ if __name__ == "__main__":
     
     model = CRNN(len(vocab)).to(device)
 
-    # LOAD PREVIOUS WEIGHTS
+    # Help from LLM: "How do I load the previous model in?" -- This is what made me realize testing other architectures would not be that difficult because we can just load in the parts of the model we want.
     if os.path.exists(CHECKPOINT_PATH):
         print(f"Loading weights from {CHECKPOINT_PATH}...")
         model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=device))
@@ -127,6 +127,7 @@ if __name__ == "__main__":
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
     criterion = nn.CTCLoss(blank=0, reduction='mean', zero_infinity=True)
 
+    # This training loop was with help from an LLM
     print(f"Continuing training on {device} from Epoch {START_EPOCH} to {END_EPOCH}")
     for epoch in range(START_EPOCH, END_EPOCH):
         for i, (images, targets, target_lengths) in enumerate(loader):
