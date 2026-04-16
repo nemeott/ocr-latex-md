@@ -1,3 +1,4 @@
+# LLM help with reformatting (I use camel casing usually, but it looks better with snake casing)
 import os
 import io
 import torch
@@ -10,10 +11,11 @@ from PIL import Image
 import numpy as np
 
 os.environ["HIP_VISIBLE_DEVICES"] = "1" # For some reason, ROCm lists my iGPU first
-os.environ["PYTORCH_HIP_ALLOC_CONF"] = "garbage_collection_threshold:0.8"
+os.environ["PYTORCH_HIP_ALLOC_CONF"] = "garbage_collection_threshold:0.8" # I think ROCm hates me
 torch.backends.cudnn.enabled = False 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Building the vocabulary was written heavily with use of an LLM. Prompt: "I think something is wrong with the way I'm building my vocabulary: [...]. The datsets have weird names or something. How do I fix this?"
 class CharVocab:
     def __init__(self):
         # Index 0 is the [blank] token for CTC
@@ -37,6 +39,7 @@ class CharVocab:
     def encode(self, text):
         return [self.char2idx.get(c, 1) for c in text]
 
+    # This part needed an update from the LLM because the first version did not function correctly
     def decode(self, indices):
         res = []
         for i in range(len(indices)):
@@ -50,6 +53,7 @@ class CharVocab:
     def __len__(self):
         return len(self.char2idx)
 
+# This was written with the help of an LLM, particularly __getitem__.
 class UnifiedOCRDataset(Dataset):
     def __init__(self, hf_dataset, vocab, transform=None):
         self.data, self.vocab, self.transform = hf_dataset, vocab, transform
@@ -66,6 +70,7 @@ class UnifiedOCRDataset(Dataset):
         tokens = torch.tensor(self.vocab.encode(item[self.label_key]))
         return image, tokens, torch.tensor(len(tokens))
 
+# The LLM got really upset at me for not using a custom collate_fn when getting to the training, so now this is here.
 def collate_fn(batch):
     images, tokens, lengths = zip(*batch)
     return torch.stack(images), torch.cat(tokens), torch.stack(lengths)
@@ -73,6 +78,7 @@ def collate_fn(batch):
 class CRNN(nn.Module):
     def __init__(self, vocab_size, hidden_dim=256):
         super().__init__()
+        # This is the model. The CNN part is pretty similar to a project I'm working on in a different class.
         self.cnn = nn.Sequential(
             nn.Conv2d(1, 64, 3, 1, 1), nn.ReLU(), nn.MaxPool2d(2, 2),
             nn.Conv2d(64, 128, 3, 1, 1), nn.ReLU(), nn.MaxPool2d(2, 2),
@@ -83,14 +89,14 @@ class CRNN(nn.Module):
             nn.Conv2d(512, 512, 2, 1, 0), nn.BatchNorm2d(512), nn.ReLU(),
             nn.AdaptiveAvgPool2d((1, None)) 
         )
-        self.rnn = nn.LSTM(512, hidden_dim, bidirectional=True, num_layers=2, batch_first=True, dropout=0.3)
-        self.fc = nn.Linear(hidden_dim * 2, vocab_size)
+        self.rnn = nn.LSTM(512, hidden_dim, bidirectional=True, num_layers=2, batch_first=True, dropout=0.3) # Just a simple bi-di LSTM for the output
+        self.fc = nn.Linear(hidden_dim * 2, vocab_size) # Needed for mapping the output into the vocab
 
     def forward(self, x):
-        features = self.cnn(x).squeeze(2).permute(0, 2, 1) 
+        features = self.cnn(x).squeeze(2).permute(0, 2, 1) # This was with help of an LLM
         recurrent, _ = self.rnn(features)
         output = self.fc(recurrent)
-        return output.permute(1, 0, 2).log_softmax(2)
+        return output.permute(1, 0, 2).log_softmax(2) # This last part was with help of an LLM
 
 if __name__ == "__main__":
     myToken = ""
@@ -104,6 +110,7 @@ if __name__ == "__main__":
         transforms.Resize((128, 1024)), transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))
     ])
 
+    # Building the combined dataset with weighted random sampling was written with help from an LLM
     train_set = ConcatDataset([UnifiedOCRDataset(text_ds, vocab, transform), UnifiedOCRDataset(latex_ds, vocab, transform)])
     weights = ([1.0/len(text_ds)] * len(text_ds)) + ([1.0/len(latex_ds)] * len(latex_ds))
     sampler = WeightedRandomSampler(weights, num_samples=25000, replacement=True)
@@ -128,6 +135,7 @@ if __name__ == "__main__":
             optimizer.step()
             
             if i % 100 == 0:
+                # This progress part was with help from an LLM
                 try:
                     with torch.no_grad():
                         sample_out = outputs[:, 0, :].argmax(1)
