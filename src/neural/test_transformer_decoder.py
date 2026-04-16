@@ -1,3 +1,4 @@
+# LLM help with reformatting (I use camel casing usually, but it looks better with snake casing)
 import os
 import io
 import re
@@ -11,10 +12,11 @@ from PIL import Image
 import editdistance
 from tqdm import tqdm
 
-os.environ["HIP_VISIBLE_DEVICES"] = "1" 
+os.environ["HIP_VISIBLE_DEVICES"] = "1" # I ended up getting rid of the garbage collection threshold because I think it wasn't necessary anymore. No errors so far, at least.
 torch.backends.cudnn.enabled = False 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Has to match vocab used for transformer
 class SubwordVocab:
     def __init__(self, special_tokens):
         self.char2idx = {"<PAD>": 0, "<UNK>": 1, "<SOS>": 2, "<EOS>": 3}
@@ -38,7 +40,6 @@ class SubwordVocab:
                 self.char2idx[char] = idx
                 self.idx2char[idx] = char
         
-        # USE RAW LIST TO MATCH TRAINING INDEXING
         for t in self.raw_special_tokens:
             if t not in self.char2idx:
                 idx = len(self.char2idx)
@@ -53,12 +54,14 @@ class SubwordVocab:
 
     def __len__(self): return len(self.char2idx)
 
+# Written with help of LLM
 def collate_fn(batch):
     images, tokens = zip(*batch)
     images = torch.stack(images)
     padded_tokens = torch.nn.utils.rnn.pad_sequence(tokens, batch_first=True, padding_value=0)
     return images, padded_tokens
 
+# Same
 class UnifiedOCRDataset(Dataset):
     def __init__(self, hf_dataset, vocab, transform=None):
         self.data, self.vocab, self.transform = hf_dataset, vocab, transform
@@ -72,6 +75,7 @@ class UnifiedOCRDataset(Dataset):
         encoded = [2] + self.vocab.encode(item[self.label_key]) + [3]
         return image, torch.tensor(encoded)
 
+# Same as used for training transformer (minus all the extra lines), so still with help from LLM
 class PositionalEncoding2D(nn.Module):
     def __init__(self, d_model, max_h=32, max_w=128):
         super().__init__()
@@ -89,6 +93,7 @@ class PositionalEncoding2D(nn.Module):
         B, C, H, W = x.shape
         return (x.permute(0, 2, 3, 1) + self.pe[:, :H, :W, :]).reshape(B, H * W, C)
 
+# Same as above
 class PositionalEncoding1D(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super().__init__()
@@ -99,6 +104,7 @@ class PositionalEncoding1D(nn.Module):
         self.register_buffer('pe', pe.unsqueeze(0))
     def forward(self, x): return x + self.pe[:, :x.size(1)]
 
+# Must match what was used for training
 class CNNTransformerOCR(nn.Module):
     def __init__(self, vocab_size, d_model=256, nhead=8, num_layers=3):
         super().__init__()
@@ -120,6 +126,7 @@ class CNNTransformerOCR(nn.Module):
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
         return mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0)).to(device)
 
+# This was written with help from LLM; we ended up going with greedy decoding because beam search was taking way too long.
 def greedy_decode_batch(model, images, vocab, max_len=150):
     model.eval()
     B = images.size(0)
@@ -152,7 +159,7 @@ if __name__ == "__main__":
     ST = ["\\frac{", "^{", "_{", "}^{", "\\sqrt{", "\\begin{matrix}", "\\end{matrix}", 
           "\\alpha", "\\beta", "\\gamma", "\\theta", "\\sum_{", "\\int_{", "\\rightarrow"]
     
-    # CRITICAL: Build Vocab from TRAIN splits to match model weights
+    # Build Vocab from TRAIN splits to match model weights; this is what we were doing, but it had been a week, and I forgot. Asked for help from LLM
     print("Re-building Training Vocab for synchronization...")
     latex_train = load_dataset("LiamYo/MathWritingHandwritten", split="train")
     text_train = load_dataset("Teklia/IAM-line", split="train")
@@ -164,10 +171,11 @@ if __name__ == "__main__":
     del latex_train, text_train
 
     # Load actual Validation Sets
-    print("Fetching Validation Datasets...")
+    print("Fetching Validation Datasets")
     l_val = load_dataset("LiamYo/MathWritingHandwritten", split="validation")
     t_val = load_dataset("Teklia/IAM-line", split="validation")
-    
+
+    # This is all the same stuff we've been doing the whole time now
     transform = transforms.Compose([
         transforms.Resize((128, 1024)), transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))
     ])
@@ -176,11 +184,13 @@ if __name__ == "__main__":
                              UnifiedOCRDataset(l_val, vocab, transform)])
     
     val_loader = DataLoader(val_set, batch_size=32, shuffle=False, collate_fn=collate_fn)
-    
+
+    # Used an LLM for a fancy output bar
     checkpoints = [12]
     print(f"\n{'Epoch':<8} | {'Exact Match':<12} | {'CER':<8} | {'WER':<8}")
     print("-" * 50)
-    
+
+    # This was written with the help of an LLM, particularly 1, 2, and 3
     for ep in checkpoints:
         fname = f"ocr_hybrid_transformer_epoch_{ep}.pth"
         if not os.path.exists(fname): continue
@@ -190,23 +200,28 @@ if __name__ == "__main__":
         model.eval()
         
         t_cer, t_wer, t_acc, t_chars, t_words, count = 0, 0, 0, 0, 0, 0
-        
+
+        # 1
         for images, tokens in tqdm(val_loader, desc=f"Evaluating Epoch {ep}"):
             images = images.to(device)
             preds = greedy_decode_batch(model, images, vocab)
             
             for i, pred in enumerate(preds):
+                # 2
                 gt = "".join([vocab.idx2char.get(idx.item(), "") 
                               for idx in tokens[i] if idx.item() not in [0, 2, 3]])
+                
                 if count < 5: # Just show the first few
                     print(f"\n--- Sample {count} ---")
                     print(f"GT:   {gt}")
                     print(f"PRED: {pred}")
                     print(f"Match? {pred.strip() == gt.strip()}")
+
                 t_cer += editdistance.eval(pred, gt)
                 t_chars += len(gt) if len(gt) > 0 else 1
                 t_wer += editdistance.eval(pred.split(), gt.split())
                 t_words += len(gt.split()) if len(gt.split()) > 0 else 1
+                # 3
                 if pred.strip() == gt.strip(): t_acc += 1
                 count += 1
         
